@@ -33,9 +33,21 @@ model School {
   id             String   @id @default(uuid())
   name           String
   slug           String   @unique // subdomain / identifier, e.g. "mater-academy"
-  mpesaShortcode String?  @unique // Paybill/Till number, used to route C2B callbacks to this school
+  schoolCode     String   @unique // exactly five digits, used in employee keys
+  motto          String
+  vision         String
+  mission        String
+  address        String?
+  city           String?
+  county         String?
+  postalCode     String?
+  phone          String @unique
+  email          String
+  website        String?
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
+  nextTeacherSequence Int @default(0)
+  nextStaffSequence   Int @default(0)
 
   users                 User[]
   teachers              Teacher[]
@@ -82,8 +94,30 @@ model School {
   loanRequests          EmployeeLoanRequest[]
   resignationRecords    ResignationRecord[]
   uploads               FileUpload[]
+  backgroundJobs        BackgroundJob[]
+  settings              SchoolSettings?
 
   @@map("schools")
+}
+
+model SchoolSettings {
+  id             String   @id @default(uuid())
+  schoolId       String   @unique
+  school         School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  mpesaShortcode String?  @unique
+  mpesaEnabled   Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("school_settings")
+}
+
+model SystemSequence {
+  key             String   @id
+  nextSchoolCode  Int      @default(1)
+  updatedAt       DateTime @updatedAt
+
+  @@map("system_sequences")
 }
 
 // ------------------------------------------------------------
@@ -102,19 +136,28 @@ enum Role {
 }
 
 model User {
-  id           String  @id @default(uuid())
-  email        String  @unique
-  phone        String? @unique
-  passwordHash String
-  role         Role
+  id                 String  @id @default(uuid())
+  username           String  @unique
+  email              String  @unique
+  phone              String @unique
+  passwordHash       String
+  mustChangePassword Boolean @default(true)
+  authProvider       String  @default("LOCAL")
+  googleSubject      String? @unique
+  role               Role
 
   // null only for SUPER_ADMIN — every school-scoped user must have one
   schoolId String?
   school   School? @relation(fields: [schoolId], references: [id])
 
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isActive            Boolean   @default(true)
+  currentSessionId    String?
+  lastLoginAt         DateTime?
+  lastLoginIp         String?
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   teacher           Teacher?
   student           Student?
@@ -131,6 +174,8 @@ model User {
   processedPayrollRuns  PayrollRun[]
   initiatedResignations ResignationRecord[]    @relation("ResignationInitiatedBy")
   reviewedResignations  ResignationRecord[]    @relation("ResignationReviewedBy")
+  refreshSessions       RefreshSession[]
+  passwordResetOtps     PasswordResetOtp[]
 
   @@index([schoolId])
   @@map("users")
@@ -170,14 +215,17 @@ model Teacher {
   employeeKey String         @unique
   employeeNo  EmployeeNumber @relation("EmployeeNumberTeacher", fields: [employeeKey], references: [ownerKey])
 
-  nssfNumber String? @unique
-  kraPin     String? @unique
-  shaNumber  String? @unique
+  nssfNumber String @unique
+  kraPin     String @unique
+  shaNumber  String @unique
+  nationalIdNumber String @unique
+  passportNumber   String? @unique
 
   jobGroupId String?
   jobGroup   JobGroup? @relation(fields: [jobGroupId], references: [id])
 
   firstName String
+  middleName String?
   lastName  String
   hireDate  DateTime
   createdAt DateTime @default(now())
@@ -209,14 +257,17 @@ model Staff {
   employeeKey String         @unique
   employeeNo  EmployeeNumber @relation("EmployeeNumberStaff", fields: [employeeKey], references: [ownerKey])
 
-  nssfNumber String? @unique
-  kraPin     String? @unique
-  shaNumber  String? @unique
+  nssfNumber String @unique
+  kraPin     String @unique
+  shaNumber  String @unique
+  nationalIdNumber String @unique
+  passportNumber   String? @unique
 
   jobGroupId String?
   jobGroup   JobGroup? @relation(fields: [jobGroupId], references: [id])
 
   firstName  String
+  middleName String?
   lastName   String
   department String
   jobTitle   String
@@ -252,7 +303,11 @@ model Student {
 
   admissionNo   String
   firstName     String
+  middleName    String?
   lastName      String
+  nationalIdNumber       String  @unique
+  birthCertificateNumber String  @unique
+  passportNumber         String? @unique
   dateOfBirth   DateTime @db.Date
   gender        Gender
   admissionDate DateTime @default(now())
@@ -286,9 +341,12 @@ model Parent {
   user     User   @relation(fields: [userId], references: [id])
 
   firstName String
+  middleName String?
   lastName  String
-  phone     String
+  phone     String @unique
   relation  ParentRelation
+  nationalIdNumber String @unique
+  passportNumber   String? @unique
 
   students StudentParent[]
 
@@ -296,12 +354,17 @@ model Parent {
   @@map("parents")
 }
 
-// many-to-many: a student can have multiple parents/guardians on file
 model StudentParent {
-  studentId String
-  parentId  String
-  student   Student @relation(fields: [studentId], references: [id])
-  parent    Parent  @relation(fields: [parentId], references: [id])
+  studentId               String
+  parentId                String
+  isPrimaryContact        Boolean  @default(false)
+  isFinanciallyResponsible Boolean  @default(false)
+  canPickUp               Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  parent  Parent  @relation(fields: [parentId], references: [id], onDelete: Cascade)
 
   @@id([studentId, parentId])
   @@map("student_parents")
@@ -319,8 +382,6 @@ model AcademicYear {
   name      String // "2026"
   startDate DateTime @db.Date
   endDate   DateTime @db.Date
-  // exactly one isCurrent per school is enforced DB-side:
-  // partial unique index in migrations/manual_constraints.sql
   isCurrent Boolean  @default(false)
 
   terms       Term[]
@@ -399,7 +460,6 @@ enum EnrollmentStatus {
   WITHDRAWN
 }
 
-// A student's placement in a stream for a given academic year
 model Enrollment {
   id       String @id @default(uuid())
   schoolId String
@@ -456,9 +516,6 @@ model TeacherSubject {
   @@map("teacher_subjects")
 }
 
-// which teacher teaches which subject to which stream.
-// The service layer must validate: stream.classLevel.curriculum ===
-// subject.curriculum.
 model ClassSubject {
   id       String @id @default(uuid())
   schoolId String
@@ -491,11 +548,6 @@ enum Weekday {
   SATURDAY
 }
 
-// Overlap protection (same stream / same teacher double-booked) is NOT
-// in this file — Prisma cannot express exclusion constraints. It lives
-// in migrations/manual_constraints.sql: generated columns day_int /
-// start_minute / end_minute / teacher_id + two GiST exclusion
-// constraints. Room conflicts still need a Room model (TODO).
 model TimetableSlot {
   id       String @id @default(uuid())
   schoolId String
@@ -506,8 +558,8 @@ model TimetableSlot {
   classSubjectId String
   classSubject   ClassSubject @relation(fields: [classSubjectId], references: [id])
   day            Weekday
-  startTime      DateTime     @db.Time // time-of-day only, e.g. 08:00
-  endTime        DateTime     @db.Time // service layer must enforce endTime > startTime
+  startTime      DateTime     @db.Time
+  endTime        DateTime     @db.Time
   room           String?
 
   @@index([schoolId])
@@ -542,12 +594,12 @@ model Attendance {
 
   @@unique([studentId, date])
   @@index([schoolId])
-  @@index([enrollmentId, date]) // hottest report query: per-student history
+  @@index([enrollmentId, date])
   @@map("attendance")
 }
 
 // ------------------------------------------------------------
-// EXAMS & GRADES — scored curricula (KCSE, Cambridge, IB)
+// EXAMS & GRADES
 // ------------------------------------------------------------
 
 model Exam {
@@ -555,7 +607,7 @@ model Exam {
   schoolId String
   school   School @relation(fields: [schoolId], references: [id])
 
-  name      String // "Mid-Term CAT", "End Term Exam"
+  name      String
   termId    String
   term      Term     @relation(fields: [termId], references: [id])
   subjectId String
@@ -565,7 +617,7 @@ model Exam {
 
   results ExamResult[]
 
-  @@unique([termId, subjectId, name]) // no duplicate exams for the same term+subject
+  @@unique([termId, subjectId, name])
   @@index([schoolId])
   @@map("exams")
 }
@@ -582,10 +634,9 @@ model ExamResult {
   enrollmentId String
   enrollment   Enrollment @relation(fields: [enrollmentId], references: [id])
   score        Decimal    @db.Decimal(7, 2)
-  grade        String? // computed per curriculum's scale (see GradeScale TODO)
+  grade        String?
   remarks      String?
 
-  // score <= exam.maxScore is cross-table — enforce in the service layer
   @@unique([examId, studentId])
   @@index([schoolId])
   @@map("exam_results")
@@ -600,7 +651,7 @@ model LearningArea {
   schoolId String
   school   School @relation(fields: [schoolId], references: [id])
 
-  name String // "Mathematics", "Environmental Activities"
+  name String
 
   strands Strand[]
 
@@ -644,9 +695,6 @@ enum CompetencyLevel {
   BELOW_EXPECTATION
 }
 
-// Deliberately NO unique on (studentId, subStrandId, termId): teachers
-// re-assess and correct ratings within a term. Latest-wins is a query
-// concern — fetch ordered by assessedAt desc and take the first row.
 model CompetencyAssessment {
   id       String @id @default(uuid())
   schoolId String
@@ -674,7 +722,7 @@ model CompetencyAssessment {
 }
 
 // ------------------------------------------------------------
-// FEES & BILLING (M-Pesa)
+// FEES & BILLING
 // ------------------------------------------------------------
 
 model FeeStructure {
@@ -713,8 +761,6 @@ model Invoice {
   termId       String
   term         Term          @relation(fields: [termId], references: [id])
   amountDue    Decimal       @db.Decimal(12, 2)
-  // TODO: derive from sum(payments) instead of storing — will drift.
-  // Kept for now; reconcile in the payments service.
   amountPaid   Decimal       @default(0) @db.Decimal(12, 2)
   status       InvoiceStatus @default(UNPAID)
   dueDate      DateTime      @db.Date
@@ -724,7 +770,7 @@ model Invoice {
 
   @@unique([studentId, termId])
   @@index([schoolId])
-  @@index([status, dueDate]) // overdue/dunning lists
+  @@index([status, dueDate])
   @@map("invoices")
 }
 
@@ -746,9 +792,6 @@ model Payment {
   schoolId String
   school   School @relation(fields: [schoolId], references: [id])
 
-  // Optional: a C2B paybill payment may arrive with no matching open invoice
-  // (paid in advance, overpaid, or a typo'd account number) — it's still
-  // recorded, flagged requiresAllocation for a bursar to manually allocate.
   invoiceId String?
   invoice   Invoice?      @relation(fields: [invoiceId], references: [id])
   studentId String?
@@ -760,14 +803,12 @@ model Payment {
   requiresAllocation Boolean   @default(false)
   allocatedAt        DateTime?
 
-  // M-Pesa specific
-  mpesaReceipt      String? @unique // filled in once Safaricom callback confirms
+  mpesaReceipt      String? @unique
   mpesaPhone        String?
-  checkoutRequestId String? @unique // returned by STK push, used to match the callback
+  checkoutRequestId String? @unique
 
-  // Manual entries (cheque / bank deposit / cash) specific
-  reference    String? // cheque number or bank deposit slip/txn ref
-  recordedById String? // bursar who recorded it
+  reference    String?
+  recordedById String?
   recordedBy   User?   @relation(fields: [recordedById], references: [id])
   notes        String?
 
@@ -775,7 +816,7 @@ model Payment {
   createdAt DateTime  @default(now())
 
   @@index([schoolId, status])
-  @@index([schoolId, requiresAllocation]) // bursar's allocation queue
+  @@index([schoolId, requiresAllocation])
   @@map("payments")
 }
 
@@ -783,9 +824,6 @@ model Payment {
 // STAFF MODULE ACCESS
 // ------------------------------------------------------------
 
-// Adjust the variants to match your actual module folder names —
-// this enum replaces the free-text `module` column so a typo can no
-// longer silently grant access to nothing.
 enum StaffModule {
   STUDENTS
   ATTENDANCE
@@ -815,13 +853,22 @@ model StaffModuleAccess {
 }
 
 // ------------------------------------------------------------
-// AUDIT TRAIL
+// AUDIT & FILE STORAGE
 // ------------------------------------------------------------
 
 enum AuditAction {
   CREATE
   UPDATE
   DELETE
+  AUTH_LOGIN_SUCCESS
+  AUTH_LOGIN_FAILED
+  AUTH_LOGOUT
+  PASSWORD_CHANGED
+  PASSWORD_CHANGE_FAILED
+  ACCOUNT_LOCKED
+  IMPERSONATION_STARTED
+  IMPERSONATED_ACTION
+  IMPERSONATION_ENDED
 }
 
 model AuditLog {
@@ -829,15 +876,53 @@ model AuditLog {
   schoolId String?
   school   School? @relation(fields: [schoolId], references: [id])
 
-  actorId    String // User.id — intentionally a loose string: the audit
-  entityType String // trail must survive user deletion
-  entityId   String
+  actorId    String?
+  entityType String
+  entityId   String?
   action     AuditAction
+  ipAddress  String?
+  userAgent  String?
+  traceId    String?
+  metadata   Json?
   createdAt  DateTime    @default(now())
 
   @@index([schoolId])
   @@index([entityType, entityId])
+  @@index([action, createdAt])
   @@map("audit_logs")
+}
+
+model RefreshSession {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("refresh_sessions")
+}
+
+model PasswordResetOtp {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash   String
+  purpose    String    @default("PASSWORD_RESET")
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int       @default(0)
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+  @@map("password_reset_otps")
 }
 
 model FileUpload {
@@ -859,6 +944,28 @@ model FileUpload {
 
   @@index([relatedType, relatedId])
   @@map("file_uploads")
+}
+
+model BackgroundJob {
+  id          String   @id @default(uuid())
+  schoolId    String?
+  school      School?  @relation(fields: [schoolId], references: [id])
+  type        String
+  status      String   @default("QUEUED")
+  payload     Json
+  attempts    Int      @default(0)
+  maxAttempts Int      @default(3)
+  availableAt DateTime @default(now())
+  lockedAt    DateTime?
+  completedAt DateTime?
+  error       String?
+  result      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status, availableAt])
+  @@index([schoolId, type, status])
+  @@map("background_jobs")
 }
 
 // ------------------------------------------------------------
@@ -953,9 +1060,9 @@ model LoanProvider {
 
   name        String
   type        LoanSourceType @default(BANK)
-  contactName String?
-  phone       String?
-  email       String?
+  contactName String
+  phone       String
+  email       String
   address     String?
   isActive    Boolean        @default(true)
   createdAt   DateTime       @default(now())
@@ -1018,7 +1125,7 @@ model EmployeeSalaryLoan {
   provider   LoanProvider? @relation(fields: [providerId], references: [id])
 
   title            String
-  loanType         String // SALARY_ADVANCE, BANK_LOAN, SACCO_LOAN, EMERGENCY_LOAN
+  loanType         String
   amount           Decimal        @db.Decimal(12, 2)
   balance          Decimal        @db.Decimal(12, 2)
   monthlyDeduction Decimal        @db.Decimal(12, 2)
@@ -1044,10 +1151,6 @@ model EmployeeSalaryLoan {
   @@map("employee_salary_loans")
 }
 
-// Additional DB-side validation is kept in a migration for PostgreSQL:
-// CHECK ((source_type IN ('SCHOOL', 'OTHER') AND "providerId" IS NULL)
-//     OR (source_type IN ('BANK', 'SACCO') AND "providerId" IS NOT NULL))
-
 model LoanRepayment {
   id       String @id @default(uuid())
   schoolId String
@@ -1058,7 +1161,7 @@ model LoanRepayment {
 
   amount        Decimal  @db.Decimal(12, 2)
   paymentDate   DateTime @db.Date
-  paymentMethod String? // BANK_TRANSFER, MPESA, CASH, PAYROLL_DEDUCTION
+  paymentMethod String?
   reference     String?
   notes         String?
   attachmentId  String?
@@ -1081,15 +1184,37 @@ model AllowanceType {
   applicability AllowanceApplicability @default(ALL_EMPLOYEES)
   jobGroupId    String?
   jobGroup      JobGroup?              @relation(fields: [jobGroupId], references: [id])
-  isActive      Boolean                @default(true)
+  amount        Decimal                @db.Decimal(12, 2)
+  isTaxable     Boolean                @default(true)
   createdAt     DateTime               @default(now())
 
   salaryStructures SalaryStructure[]
 
   @@unique([schoolId, code])
-  @@unique([schoolId, name])
   @@index([schoolId])
   @@map("allowance_types")
+}
+
+model SalaryStructure {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id])
+  staffId   String?
+  staff     Staff?   @relation(fields: [staffId], references: [id])
+
+  baseSalary      Decimal        @db.Decimal(12, 2)
+  allowanceTypeId String?
+  allowanceType   AllowanceType? @relation(fields: [allowanceTypeId], references: [id])
+  effectiveDate   DateTime       @db.Date
+  createdAt       DateTime       @default(now())
+
+  @@index([schoolId])
+  @@index([teacherId])
+  @@index([staffId])
+  @@map("salary_structures")
 }
 
 model StatutoryDeduction {
@@ -1103,50 +1228,11 @@ model StatutoryDeduction {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
 
-  salaryStructures SalaryStructure[]
+  rateConfigs StatutoryRateConfig[]
 
   @@unique([schoolId, code])
-  @@unique([schoolId, name])
   @@index([schoolId])
   @@map("statutory_deductions")
-}
-
-model SalaryStructure {
-  id       String @id @default(uuid())
-  schoolId String
-  school   School @relation(fields: [schoolId], references: [id])
-
-  teacherId String?
-  teacher   Teacher? @relation(fields: [teacherId], references: [id])
-  staffId   String?
-  staff     Staff?   @relation(fields: [staffId], references: [id])
-
-  allowanceTypeId String?
-  allowanceType   AllowanceType? @relation(fields: [allowanceTypeId], references: [id])
-
-  statutoryDeductionId String?
-  statutoryDeduction   StatutoryDeduction? @relation(fields: [statutoryDeductionId], references: [id])
-
-  basicSalary        Decimal @db.Decimal(12, 2)
-  houseAllowance     Decimal @default(0) @db.Decimal(12, 2)
-  transportAllowance Decimal @default(0) @db.Decimal(12, 2)
-
-  // Per-employee statutory exemptions
-  exemptPaye        Boolean @default(false)
-  exemptNssf        Boolean @default(false)
-  exemptShif        Boolean @default(false)
-  exemptHousingLevy Boolean @default(false)
-
-  // exactly one isActive per employee is enforced DB-side (partial
-  // unique indexes in migrations/manual_constraints.sql)
-  effectiveDate DateTime
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-
-  payslips Payslip[]
-
-  @@index([schoolId])
-  @@map("salary_structures")
 }
 
 model StatutoryRateConfig {
@@ -1154,23 +1240,18 @@ model StatutoryRateConfig {
   schoolId String
   school   School @relation(fields: [schoolId], references: [id])
 
-  payeMonthlyRelief Decimal @db.Decimal(12, 2)
-  payeBands         Json // [{ upTo: number|null, rate: number }, ...]
+  deductionId String
+  deduction   StatutoryDeduction @relation(fields: [deductionId], references: [id])
 
-  nssfTierILimit  Decimal @db.Decimal(12, 2)
-  nssfTierIILimit Decimal @db.Decimal(12, 2)
-  nssfRate        Float // percentage, e.g. 0.06
-
-  shifRate    Float // percentage
-  shifMinimum Decimal @db.Decimal(12, 2)
-
-  housingLevyRate Float // percentage
-
-  effectiveDate DateTime
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
+  minSalary     Decimal   @db.Decimal(12, 2)
+  maxSalary     Decimal?  @db.Decimal(12, 2)
+  rate          Decimal   @db.Decimal(5, 4) // e.g., 0.1080 for 10.8%
+  fixedAmount   Decimal?  @db.Decimal(12, 2)
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
 
   @@index([schoolId])
+  @@index([deductionId])
   @@map("statutory_rate_configs")
 }
 
@@ -1184,20 +1265,21 @@ model CustomDeduction {
   staffId   String?
   staff     Staff?   @relation(fields: [staffId], references: [id])
 
-  name        String
-  amount      Decimal @db.Decimal(12, 2)
-  isRecurring Boolean @default(true)
-  isActive    Boolean @default(true)
-
-  createdAt DateTime @default(now())
+  name          String
+  amount        Decimal  @db.Decimal(12, 2)
+  isRecurring   Boolean  @default(true)
+  effectiveDate DateTime @db.Date
 
   @@index([schoolId])
+  @@index([teacherId])
+  @@index([staffId])
   @@map("custom_deductions")
 }
 
-enum PayrollRunStatus {
+enum PayrollStatus {
   DRAFT
-  PROCESSED
+  PROCESSING
+  APPROVED
   PAID
 }
 
@@ -1206,15 +1288,14 @@ model PayrollRun {
   schoolId String
   school   School @relation(fields: [schoolId], references: [id])
 
-  // "YYYY-MM" — format enforced by a CHECK constraint in
-  // migrations/manual_constraints.sql
-  month  String
-  status PayrollRunStatus @default(DRAFT)
-
+  month         String // "YYYY-MM"
+  status        PayrollStatus @default(DRAFT)
   processedById String?
-  processedBy   User?     @relation(fields: [processedById], references: [id])
+  processedBy   User?         @relation(fields: [processedById], references: [id])
   processedAt   DateTime?
-  createdAt     DateTime  @default(now())
+  totalGross    Decimal       @default(0) @db.Decimal(14, 2)
+  totalNet      Decimal       @default(0) @db.Decimal(14, 2)
+  createdAt     DateTime      @default(now())
 
   payslips Payslip[]
 
@@ -1223,75 +1304,42 @@ model PayrollRun {
   @@map("payroll_runs")
 }
 
-enum PayslipPaymentMethod {
-  BANK
-  MPESA
-  CASH
-}
-
-enum PayslipStatus {
-  PENDING
-  PAID
-}
-
 model Payslip {
   id       String @id @default(uuid())
   schoolId String
   school   School @relation(fields: [schoolId], references: [id])
 
-  payrollRunId      String
-  payrollRun        PayrollRun      @relation(fields: [payrollRunId], references: [id])
-  salaryStructureId String
-  salaryStructure   SalaryStructure @relation(fields: [salaryStructureId], references: [id])
+  payrollRunId String
+  payrollRun   PayrollRun @relation(fields: [payrollRunId], references: [id])
+
+  employeeKey String // ownerKey reference from EmployeeNumber
 
   teacherId String?
   teacher   Teacher? @relation(fields: [teacherId], references: [id])
   staffId   String?
   staff     Staff?   @relation(fields: [staffId], references: [id])
 
-  // "T:<teacherId>" or "S:<staffId>" — single non-null discriminator so
-  // @@unique actually works (Postgres NULLs are distinct)
-  employeeKey String
-
-  // Earnings (snapshotted at time of processing)
-  basicSalary        Decimal @db.Decimal(12, 2)
-  houseAllowance     Decimal @db.Decimal(12, 2)
-  transportAllowance Decimal @db.Decimal(12, 2)
-  otherAllowances    Decimal @db.Decimal(12, 2)
-  grossPay           Decimal @db.Decimal(12, 2)
-
-  // Statutory deductions (employee portion)
-  paye            Decimal @db.Decimal(12, 2)
-  nssf            Decimal @db.Decimal(12, 2)
-  shif            Decimal @db.Decimal(12, 2)
-  housingLevy     Decimal @db.Decimal(12, 2)
-  otherDeductions Decimal @default(0) @db.Decimal(12, 2)
-  totalDeductions Decimal @db.Decimal(12, 2)
-
-  netPay Decimal @db.Decimal(12, 2)
-
-  paymentMethod PayslipPaymentMethod @default(BANK)
-  status        PayslipStatus        @default(PENDING)
-  paidAt        DateTime?
-
-  createdAt DateTime @default(now())
+  basicPay        Decimal  @db.Decimal(12, 2)
+  grossPay        Decimal  @db.Decimal(12, 2)
+  totalDeductions Decimal  @db.Decimal(12, 2)
+  netPay          Decimal  @db.Decimal(12, 2)
+  createdAt       DateTime @default(now())
 
   @@unique([payrollRunId, employeeKey])
   @@index([schoolId])
   @@map("payslips")
 }
 
+// ------------------------------------------------------------
+// CONTRACTS & LEAVE MANAGEMENT
+// ------------------------------------------------------------
+
 enum ContractType {
   PERMANENT
+  CONTRACT
   FIXED_TERM
+  CASUAL
   INTERNSHIP
-  CONSULTANT
-}
-
-enum ContractStatus {
-  ACTIVE
-  TERMINATED
-  EXPIRED
 }
 
 model EmploymentContract {
@@ -1304,17 +1352,15 @@ model EmploymentContract {
   staffId   String?
   staff     Staff?   @relation(fields: [staffId], references: [id])
 
-  contractType ContractType
-  startDate    DateTime       @db.Date
-  endDate      DateTime?      @db.Date
-  status       ContractStatus @default(ACTIVE)
-  documentUrl  String? // storage PATH (bucket is private)
-  documentId   String?
-  notes        String?
-
-  createdAt DateTime @default(now())
+  type      ContractType
+  startDate DateTime     @db.Date
+  endDate   DateTime?    @db.Date
+  termsDoc  String?
+  createdAt DateTime     @default(now())
 
   @@index([schoolId])
+  @@index([teacherId])
+  @@index([staffId])
   @@map("employment_contracts")
 }
 
@@ -1324,7 +1370,9 @@ model LeaveType {
   school   School @relation(fields: [schoolId], references: [id])
 
   name               String
-  defaultDaysPerYear Int
+  daysAllowedPerYear Int
+  isPaid             Boolean  @default(true)
+  createdAt          DateTime @default(now())
 
   balances LeaveBalance[]
   requests LeaveRequest[]
@@ -1339,24 +1387,21 @@ model LeaveBalance {
   schoolId String
   school   School @relation(fields: [schoolId], references: [id])
 
+  leaveTypeId String
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+
+  employeeKey String // ownerKey reference to guarantee single balance per type per employee
+
   teacherId String?
   teacher   Teacher? @relation(fields: [teacherId], references: [id])
   staffId   String?
   staff     Staff?   @relation(fields: [staffId], references: [id])
 
-  // single non-null discriminator — replaces the broken
-  // @@unique([teacherId, staffId, ...]) whose NULL columns made the
-  // constraint unenforceable
-  employeeKey String
+  year          Int
+  allocatedDays Int
+  usedDays      Int @default(0)
 
-  leaveTypeId String
-  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
-  year        Int
-
-  daysAllocated Decimal @db.Decimal(5, 2)
-  daysUsed      Decimal @default(0) @db.Decimal(5, 2)
-
-  @@unique([employeeKey, leaveTypeId, year])
+  @@unique([leaveTypeId, employeeKey, year])
   @@index([schoolId])
   @@map("leave_balances")
 }
@@ -1365,14 +1410,7 @@ enum LeaveStatus {
   PENDING
   APPROVED
   REJECTED
-}
-
-enum ResignationStatus {
-  PENDING
-  REVIEWED
-  APPROVED
-  REJECTED
-  COMPLETED
+  CANCELLED
 }
 
 model LeaveRequest {
@@ -1380,30 +1418,39 @@ model LeaveRequest {
   schoolId String
   school   School @relation(fields: [schoolId], references: [id])
 
+  leaveTypeId String
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+
   teacherId String?
   teacher   Teacher? @relation(fields: [teacherId], references: [id])
   staffId   String?
   staff     Staff?   @relation(fields: [staffId], references: [id])
 
-  leaveTypeId     String
-  leaveType       LeaveType   @relation(fields: [leaveTypeId], references: [id])
-  startDate       DateTime    @db.Date
-  endDate         DateTime    @db.Date
-  daysRequested   Decimal     @db.Decimal(5, 2)
-  reason          String?
-  status          LeaveStatus @default(PENDING)
-  approvedById    String?
-  approvedBy      User?       @relation(fields: [approvedById], references: [id])
-  rejectionReason String?
-  approvalNotes   String?
-  attachmentId    String?
-  attachmentUrl   String?
-  decidedAt       DateTime?
-
-  createdAt DateTime @default(now())
+  startDate    DateTime    @db.Date
+  endDate      DateTime    @db.Date
+  reason       String?
+  status       LeaveStatus @default(PENDING)
+  approvedById String?
+  approvedBy   User?       @relation(fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+  createdAt    DateTime    @default(now())
 
   @@index([schoolId])
+  @@index([teacherId])
+  @@index([staffId])
   @@map("leave_requests")
+}
+
+// ------------------------------------------------------------
+// RESIGNATION & EXIT MANAGEMENT
+// ------------------------------------------------------------
+
+enum ResignationStatus {
+  PENDING
+  REVIEWED
+  APPROVED
+  REJECTED
+  COMPLETED
 }
 
 model ResignationRecord {
@@ -1416,25 +1463,20 @@ model ResignationRecord {
   staffId   String?
   staff     Staff?   @relation(fields: [staffId], references: [id])
 
-  resignationDate DateTime          @db.Date
-  noticeDate      DateTime          @db.Date
-  reason          String
-  details         String?
-  status          ResignationStatus @default(PENDING)
-  initiatedById   String?
-  initiatedBy     User?             @relation("ResignationInitiatedBy", fields: [initiatedById], references: [id])
-  reviewedById    String?
-  reviewedBy      User?             @relation("ResignationReviewedBy", fields: [reviewedById], references: [id])
-  reviewedAt      DateTime?
-  finalExitDate   DateTime?         @db.Date
-  handoverNotes   String?
-  attachmentId    String?
-  attachmentUrl   String?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  initiatedById String
+  initiatedBy   User    @relation("ResignationInitiatedBy", fields: [initiatedById], references: [id])
+  reviewedById  String?
+  reviewedBy    User?   @relation("ResignationReviewedBy", fields: [reviewedById], references: [id])
 
-  @@index([schoolId, status])
-  @@index([schoolId, teacherId])
-  @@index([schoolId, staffId])
+  noticeDate    DateTime          @db.Date
+  effectiveDate DateTime          @db.Date
+  reason        String?
+  status        ResignationStatus @default(PENDING)
+  exitInterview String?
+  createdAt     DateTime          @default(now())
+
+  @@index([schoolId])
+  @@index([teacherId])
+  @@index([staffId])
   @@map("resignation_records")
 }
