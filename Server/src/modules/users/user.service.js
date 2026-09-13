@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { prisma } from '../../config/prisma.js';
+import { prisma, runTransaction } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
 import { recordAudit } from '../../shared/audit.js';
 import { sendTemporaryCredentials } from '../../shared/email.js';
@@ -25,8 +25,9 @@ export class UserService {
         const profileId = randomUUID();
         const passwordHash = await bcrypt.hash(temporaryPassword, 12);
         let generatedOwnerKey;
+        let generatedEmployeeNo;
 
-        const user = await prisma.$transaction(async (transaction) => {
+        const user = await runTransaction(async (transaction) => {
             const existingUser = await transaction.user.findFirst({ where: { OR: [{ email: input.email }, { username: input.username }] }, select: { id: true } });
             if (existingUser) throw new BadRequestError('A user with this email already exists');
 
@@ -38,13 +39,15 @@ export class UserService {
             });
             const sequenceNumber = sequence[sequenceField];
             if (sequenceNumber > 9999) throw new BadRequestError(`The ${role.toLowerCase()} employee sequence has reached its four-digit limit`);
-            const ownerKey = `${role === 'TEACHER' ? 'T' : 'S'}${school.schoolCode}${String(sequenceNumber).padStart(4, '0')}`;
+            const ownerKey = `${role === 'TEACHER' ? 'T' : 'S'}:${profileId}`;
+            const employeeNo = `${role === 'TEACHER' ? 'T' : 'S'}${school.schoolCode}${String(sequenceNumber).padStart(4, '0')}`;
             generatedOwnerKey = ownerKey;
+            generatedEmployeeNo = employeeNo;
 
             await transaction.employeeNumber.create({
                 data: {
                     schoolId,
-                    employeeNo: ownerKey,
+                    employeeNo,
                     ownerKey,
                 },
             });
@@ -137,6 +140,7 @@ export class UserService {
             role,
             schoolId,
             employeeKey: generatedOwnerKey,
+            employeeNo: generatedEmployeeNo,
             mustChangePassword: true,
             ...(env.NODE_ENV !== 'production' ? { temporaryPassword } : {}),
         };

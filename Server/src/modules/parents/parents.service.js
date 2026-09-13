@@ -1,7 +1,9 @@
-import { prisma } from '../../config/prisma.js';
+import { prisma, runTransaction } from '../../config/prisma.js';
 import { recordAudit } from '../../shared/audit.js';
 import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
 import bcrypt from 'bcryptjs';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { sendTemporaryCredentials } from '../../shared/email.js';
 
 const parentSelect = {
     id: true,
@@ -61,7 +63,8 @@ export class ParentService {
             throw new BadRequestError('User context must belong to a school to register parents');
         }
 
-        const parent = await prisma.$transaction(async (tx) => {
+        let portalCredentials = null;
+        const parent = await runTransaction(async (tx) => {
             // Check if national ID already exists in this school
             const existingParent = await tx.parent.findFirst({
                 where: { schoolId, nationalIdNumber: input.nationalIdNumber },
@@ -82,18 +85,24 @@ export class ParentService {
                     throw new BadRequestError('An account with this email address already exists');
                 }
 
-                // Generate default password (e.g., Parent Phone number)
-                const hashedPassword = await bcrypt.hash(input.phone, 10);
+                if (!input.email) throw new BadRequestError('Email is required when creating a portal account');
+                const temporaryPassword = `SMIS-${randomBytes(12).toString('base64url')}`;
+                const hashedPassword = await bcrypt.hash(temporaryPassword, 12);
 
                 const newUser = await tx.user.create({
                     data: {
+                        username: `parent-${randomUUID()}`,
                         email: portalEmail,
+                        phone: input.phone,
                         passwordHash: hashedPassword,
                         role: 'PARENT',
                         schoolId,
+                        mustChangePassword: true,
                     },
                 });
                 userId = newUser.id;
+
+                portalCredentials = { to: portalEmail, firstName: input.firstName, temporaryPassword, userId };
             }
 
             // Create Parent record
@@ -112,6 +121,15 @@ export class ParentService {
                 select: parentSelect,
             });
         });
+
+        if (portalCredentials) {
+            try {
+                await sendTemporaryCredentials({ ...portalCredentials, role: 'PARENT' });
+            } catch (error) {
+                await prisma.user.update({ where: { id: portalCredentials.userId }, data: { isActive: false } });
+                throw new BadRequestError('Parent was created but credentials could not be delivered; the account has been deactivated.');
+            }
+        }
 
         await recordAudit({
             action: 'CREATE',
@@ -146,7 +164,7 @@ export class ParentService {
                 : {}),
         };
 
-        const [parents, total] = await prisma.$transaction([
+        const [parents, total] = await runTransaction([
             prisma.parent.findMany({
                 where,
                 select: parentSelect,

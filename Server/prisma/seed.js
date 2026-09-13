@@ -52,11 +52,12 @@ async function main() {
         create: { id: IDS.admin, username: 'admin', email: 'admin@demo.school', phone: '+254700000004', passwordHash: passwordHashes.admin, role: 'ADMIN', schoolId: school.id, mustChangePassword: false },
     });
 
-    const teacherOwnerKey = 'T123450001';
+    const teacherOwnerKey = `T:${IDS.teacher}`;
+    const teacherEmployeeNo = 'T123450001';
     await prisma.employeeNumber.upsert({
         where: { ownerKey: teacherOwnerKey },
-        update: { schoolId: school.id, employeeNo: teacherOwnerKey },
-        create: { schoolId: school.id, employeeNo: teacherOwnerKey, ownerKey: teacherOwnerKey },
+        update: { schoolId: school.id, employeeNo: teacherEmployeeNo },
+        create: { schoolId: school.id, employeeNo: teacherEmployeeNo, ownerKey: teacherOwnerKey },
     });
     const teacherUser = await prisma.user.upsert({
         where: { username: 'jane.teacher' },
@@ -68,13 +69,13 @@ async function main() {
         update: { userId: teacherUser.id, schoolId: school.id, employeeKey: teacherOwnerKey, firstName: 'Jane', middleName: 'Wanjiku', lastName: 'Teacher', nationalIdNumber: 'ID-DEMO-TEACHER-001', passportNumber: 'P-DEMO-TEACHER-001', nssfNumber: 'NSSF-DEMO-TEACHER-001', kraPin: 'KRA-DEMO-TEACHER-001', shaNumber: 'SHA-DEMO-TEACHER-001', hireDate: new Date('2024-01-08') },
         create: { id: IDS.teacher, userId: teacherUser.id, schoolId: school.id, employeeKey: teacherOwnerKey, firstName: 'Jane', middleName: 'Wanjiku', lastName: 'Teacher', nationalIdNumber: 'ID-DEMO-TEACHER-001', passportNumber: 'P-DEMO-TEACHER-001', nssfNumber: 'NSSF-DEMO-TEACHER-001', kraPin: 'KRA-DEMO-TEACHER-001', shaNumber: 'SHA-DEMO-TEACHER-001', hireDate: new Date('2024-01-08') },
     });
-    await prisma.employeeNumber.deleteMany({ where: { ownerKey: `T:${IDS.teacher}` } });
 
-    const staffOwnerKey = 'S123450001';
+    const staffOwnerKey = `S:${IDS.staff}`;
+    const staffEmployeeNo = 'S123450001';
     await prisma.employeeNumber.upsert({
         where: { ownerKey: staffOwnerKey },
-        update: { schoolId: school.id, employeeNo: staffOwnerKey },
-        create: { schoolId: school.id, employeeNo: staffOwnerKey, ownerKey: staffOwnerKey },
+        update: { schoolId: school.id, employeeNo: staffEmployeeNo },
+        create: { schoolId: school.id, employeeNo: staffEmployeeNo, ownerKey: staffOwnerKey },
     });
     const staffUser = await prisma.user.upsert({
         where: { username: 'sam.staff' },
@@ -86,7 +87,6 @@ async function main() {
         update: { userId: staffUser.id, schoolId: school.id, employeeKey: staffOwnerKey, firstName: 'Sam', middleName: 'Kamau', lastName: 'Staff', nationalIdNumber: 'ID-DEMO-STAFF-001', passportNumber: 'P-DEMO-STAFF-001', nssfNumber: 'NSSF-DEMO-STAFF-001', kraPin: 'KRA-DEMO-STAFF-001', shaNumber: 'SHA-DEMO-STAFF-001', department: 'Admissions', jobTitle: 'Admissions Officer', hireDate: new Date('2024-01-08') },
         create: { id: IDS.staff, userId: staffUser.id, schoolId: school.id, employeeKey: staffOwnerKey, firstName: 'Sam', middleName: 'Kamau', lastName: 'Staff', nationalIdNumber: 'ID-DEMO-STAFF-001', passportNumber: 'P-DEMO-STAFF-001', nssfNumber: 'NSSF-DEMO-STAFF-001', kraPin: 'KRA-DEMO-STAFF-001', shaNumber: 'SHA-DEMO-STAFF-001', department: 'Admissions', jobTitle: 'Admissions Officer', hireDate: new Date('2024-01-08') },
     });
-    await prisma.employeeNumber.deleteMany({ where: { ownerKey: `S:${IDS.staff}` } });
 
     for (const module of ['STUDENTS', 'ATTENDANCE', 'TIMETABLE', 'EXAMS', 'CBC', 'FEES', 'REPORTS']) {
         await prisma.staffModuleAccess.upsert({

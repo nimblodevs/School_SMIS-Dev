@@ -1,7 +1,8 @@
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import { prisma } from '../../config/prisma.js';
+import { prisma, runTransaction } from '../../config/prisma.js';
 import { recordAudit } from '../../shared/audit.js';
+import { sendParentActivationInvite } from '../../shared/email.js';
 import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
 
 export class ParentActivationService {
@@ -15,6 +16,7 @@ export class ParentActivationService {
         });
 
         if (!parent) throw new NotFoundError('Parent profile not found');
+        if (!parent.email) throw new BadRequestError('Parent email is required before sending an activation invite');
 
         // Generate secure token valid for 48 hours
         const rawToken = crypto.randomBytes(32).toString('hex');
@@ -27,7 +29,9 @@ export class ParentActivationService {
             const email = parent.email || `${parent.phone}@parent.school`;
             const newUser = await prisma.user.create({
                 data: {
+                    username: `parent-${crypto.randomUUID()}`,
                     email,
+                    phone: parent.phone,
                     role: 'PARENT',
                     schoolId: parent.schoolId,
                     passwordHash: await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10), // temporary lock
@@ -51,7 +55,7 @@ export class ParentActivationService {
             },
         });
 
-        // TODO: Send SMS/Email with the link containing rawToken
+        await sendParentActivationInvite({ to: parent.email, firstName: parent.firstName, token: rawToken });
 
         await recordAudit({
             action: 'INVITE',
@@ -64,7 +68,7 @@ export class ParentActivationService {
             userAgent,
         });
 
-        return { message: 'Activation token generated and sent successfully', token: rawToken };
+        return { message: 'Activation token generated and sent successfully' };
     }
 
     /**
@@ -88,7 +92,7 @@ export class ParentActivationService {
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        await prisma.$transaction([
+        await runTransaction([
             prisma.user.update({
                 where: { id: activationRecord.userId },
                 data: {

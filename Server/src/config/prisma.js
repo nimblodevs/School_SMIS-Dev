@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { env } from './env.js';
 import { logger } from './logger.js';
 import { tenantContext } from './tenant-context.js';
+import { getOrCreateTraceId, recordAuditTrace, runWithTraceId } from './tracing.js';
 
 const globalForPrisma = globalThis;
 const TENANT_MODELS = new Set([
@@ -118,6 +119,14 @@ function createPrismaClient() {
 }
 
 export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+
+export function runTransaction(operation, options) {
+    const traceId = getOrCreateTraceId();
+    return runWithTraceId(traceId, () => {
+        recordAuditTrace('database.transaction', { 'transaction.trace_id': traceId });
+        return prisma.$transaction(operation, options);
+    });
+}
 
 if (env.NODE_ENV !== 'production') {
     globalForPrisma.prisma = prisma;

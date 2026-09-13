@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import { createHash, randomInt, randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
-import { prisma } from '../../config/prisma.js';
+import { prisma, runTransaction } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
 import { recordAudit } from '../../shared/audit.js';
 import { logger } from '../../config/logger.js';
@@ -438,7 +438,7 @@ export class AuthService {
             if (reset) await prisma.passwordResetOtp.update({ where: { id: reset.id }, data: { attempts: { increment: 1 } } });
             throw new UnauthorizedError('Invalid or expired reset code');
         }
-        await prisma.$transaction([
+        await runTransaction([
             prisma.user.update({ where: { id: user.id }, data: { passwordHash: await bcrypt.hash(newPassword, 12), currentSessionId: null, mustChangePassword: false } }),
             prisma.passwordResetOtp.update({ where: { id: reset.id }, data: { consumedAt: new Date() } }),
             prisma.refreshSession.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } }),
@@ -464,7 +464,7 @@ export class AuthService {
             ...(role ? { role } : {}),
             ...(search ? { OR: [{ email: { contains: search, mode: 'insensitive' } }, { phone: { contains: search, mode: 'insensitive' } }] } : {}),
         };
-        const [users, total] = await prisma.$transaction([
+        const [users, total] = await runTransaction([
             prisma.user.findMany({
                 where,
                 select: { id: true, email: true, phone: true, role: true, schoolId: true, isActive: true, mustChangePassword: true, authProvider: true, lastLoginAt: true, createdAt: true },
@@ -486,7 +486,7 @@ export class AuthService {
 
         let user = await prisma.user.findFirst({ where: { OR: [{ googleSubject: payload.sub }, { email: payload.email.toLowerCase() }] } });
         if (!user) {
-            user = await prisma.user.create({ data: { username: `${payload.email.split('@')[0].replace(/[^A-Za-z0-9._-]/g, '')}-${randomUUID().slice(0, 8)}`, email: payload.email.toLowerCase(), passwordHash: await bcrypt.hash(randomUUID(), 12), role: 'PARENT', authProvider: 'GOOGLE', googleSubject: payload.sub } });
+            user = await prisma.user.create({ data: { username: `${payload.email.split('@')[0].replace(/[^A-Za-z0-9._-]/g, '')}-${randomUUID().slice(0, 8)}`, email: payload.email.toLowerCase(), phone: `google-${randomUUID()}`, passwordHash: await bcrypt.hash(randomUUID(), 12), role: 'PARENT', authProvider: 'GOOGLE', googleSubject: payload.sub } });
         } else if (!user.googleSubject) {
             user = await prisma.user.update({ where: { id: user.id }, data: { googleSubject: payload.sub, authProvider: 'GOOGLE' } });
         }

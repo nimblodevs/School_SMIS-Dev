@@ -38,13 +38,6 @@ ALTER COLUMN "email" SET NOT NULL;
 ALTER TABLE "parents" ALTER COLUMN "nationalIdNumber" SET NOT NULL;
 
 -- AlterTable
-ALTER TABLE "schools" ALTER COLUMN "motto" SET NOT NULL,
-ALTER COLUMN "vision" SET NOT NULL,
-ALTER COLUMN "mission" SET NOT NULL,
-ALTER COLUMN "phone" SET NOT NULL,
-ALTER COLUMN "email" SET NOT NULL;
-
--- AlterTable
 ALTER TABLE "staff" ALTER COLUMN "kraPin" SET NOT NULL,
 ALTER COLUMN "nssfNumber" SET NOT NULL,
 ALTER COLUMN "shaNumber" SET NOT NULL,
@@ -65,9 +58,6 @@ ALTER COLUMN "nationalIdNumber" SET NOT NULL;
 
 -- AlterTable
 ALTER TABLE "users" ALTER COLUMN "phone" SET NOT NULL;
-
--- CreateIndex
-CREATE UNIQUE INDEX "schools_phone_key" ON "schools"("phone");
 
 -- AddForeignKey
 ALTER TABLE "student_parents" ADD CONSTRAINT "student_parents_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "students"("id") ON DELETE CASCADE ON UPDATE CASCADE;

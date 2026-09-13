@@ -1,60 +1,155 @@
-import { prisma } from '../../config/prisma.js';
+import { prisma, runTransaction } from '../../config/prisma.js';
 import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
 import { recordAudit } from '../../shared/audit.js';
 
 export class HRService {
-    static async resetLeaveBalances(schoolId, year) {
-        const [leaveTypes, teachers, staff] = await Promise.all([
-            prisma.leaveType.findMany({ where: { schoolId } }),
-            prisma.teacher.findMany({ where: { schoolId }, select: { id: true, employeeKey: true } }),
-            prisma.staff.findMany({ where: { schoolId }, select: { id: true, employeeKey: true } }),
-        ]);
+    /**
+     * Reset leave balances for a new year. Idempotent.
+     * Runs inside a single transaction — all-or-nothing.
+     */
+    static async resetLeaveBalances(schoolId, year, actor, ctx = {}) {
+        if (!Number.isInteger(year)) throw new BadRequestError('year must be an integer');
 
-        const employees = [
-            ...teachers.map((employee) => ({ ...employee, teacherId: employee.id, staffId: null })),
-            ...staff.map((employee) => ({ ...employee, teacherId: null, staffId: employee.id })),
-        ];
-        return prisma.$transaction(
-            employees.flatMap((employee) => leaveTypes.map((leaveType) => prisma.leaveBalance.upsert({
-                where: {
-                    leaveTypeId_employeeKey_year: {
-                        leaveTypeId: leaveType.id,
-                        employeeKey: employee.employeeKey,
-                        year,
-                    },
+        return runTransaction(async (tx) => {
+            const [leaveTypes, teachers, staff] = await Promise.all([
+                tx.leaveType.findMany({ where: { schoolId } }),
+                tx.teacher.findMany({ where: { schoolId }, select: { id: true, employeeKey: true } }),
+                tx.staff.findMany({ where: { schoolId }, select: { id: true, employeeKey: true } }),
+            ]);
+
+            const employees = [
+                ...teachers.map((t) => ({ employeeKey: t.employeeKey, teacherId: t.id, staffId: null })),
+                ...staff.map((s) => ({ employeeKey: s.employeeKey, teacherId: null, staffId: s.id })),
+            ];
+
+            // Build all upserts as Prisma promises bound to `tx`
+            const ops = employees.flatMap((emp) =>
+                leaveTypes.map((lt) =>
+                    tx.leaveBalance.upsert({
+                        where: {
+                            leaveTypeId_employeeKey_year: {
+                                leaveTypeId: lt.id,
+                                employeeKey: emp.employeeKey,
+                                year,
+                            },
+                        },
+                        update: {
+                            allocatedDays: lt.daysAllowedPerYear,
+                            usedDays: 0,
+                            teacherId: emp.teacherId,
+                            staffId: emp.staffId,
+                        },
+                        create: {
+                            schoolId,
+                            leaveTypeId: lt.id,
+                            employeeKey: emp.employeeKey,
+                            teacherId: emp.teacherId,
+                            staffId: emp.staffId,
+                            year,
+                            allocatedDays: lt.daysAllowedPerYear,
+                            usedDays: 0,
+                        },
+                    }),
+                ),
+            );
+
+            await Promise.all(ops);
+
+            await recordAudit(
+                {
+                    action: 'UPDATE',
+                    actorId: actor.id,
+                    schoolId,
+                    entityType: 'LeaveBalance',
+                    entityId: `year:${year}`,
+                    metadata: { year, employees: employees.length, leaveTypes: leaveTypes.length },
+                    ...ctx,
                 },
-                update: { allocatedDays: leaveType.daysAllowedPerYear, usedDays: 0, teacherId: employee.teacherId, staffId: employee.staffId },
-                create: { schoolId, leaveTypeId: leaveType.id, employeeKey: employee.employeeKey, teacherId: employee.teacherId, staffId: employee.staffId, year, allocatedDays: leaveType.daysAllowedPerYear, usedDays: 0 },
-            }))),
-        );
+                tx,
+            );
+
+            return { employees: employees.length, leaveTypes: leaveTypes.length };
+        });
     }
 
-    static async requestLeave(payload, actor) {
+    static async requestLeave(payload, actor, ctx = {}) {
         const schoolId = actor.schoolId;
+        const start = new Date(payload.startDate);
+        const end = new Date(payload.endDate);
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+            throw new BadRequestError('Invalid dates');
+        }
+        if (end < start) throw new BadRequestError('endDate must be >= startDate');
+
+        if ((payload.teacherId && payload.staffId) || (!payload.teacherId && !payload.staffId)) {
+            throw new BadRequestError('Exactly one of teacherId or staffId must be provided');
+        }
 
         return prisma.leaveRequest.create({
             data: {
                 schoolId,
                 leaveTypeId: payload.leaveTypeId,
-                teacherId: payload.teacherId,
-                staffId: payload.staffId,
-                startDate: new Date(payload.startDate),
-                endDate: new Date(payload.endDate),
-                reason: payload.reason,
+                teacherId: payload.teacherId ?? null,
+                staffId: payload.staffId ?? null,
+                startDate: start,
+                endDate: end,
+                reason: payload.reason ?? null,
                 status: 'PENDING',
             },
         });
     }
 
-    static async approveLeave(leaveRequestId, actor, { ipAddress, userAgent } = {}) {
+    /**
+     * Approve a leave request. Locks the balance row, validates sufficient days,
+     * decrements usedDays, and writes an audit event — all in one transaction.
+     */
+    static async approveLeave(leaveRequestId, actor, ctx = {}) {
         const schoolId = actor.schoolId;
 
-        return prisma.$transaction(async (tx) => {
+        return runTransaction(async (tx) => {
             const leave = await tx.leaveRequest.findFirst({
                 where: { id: leaveRequestId, schoolId },
                 include: { leaveType: true },
             });
             if (!leave) throw new NotFoundError('Leave request not found');
+            if (leave.status !== 'PENDING') {
+                throw new BadRequestError(`Cannot approve a ${leave.status} request`);
+            }
+
+            const start = new Date(leave.startDate);
+            const end = new Date(leave.endDate);
+            if (end < start) throw new BadRequestError('Invalid leave dates');
+
+            // Count working days (Mon-Fri). Adjust to your school calendar.
+            const days = HRService._workingDaysBetween(start, end);
+            if (days <= 0) throw new BadRequestError('Leave must include at least one working day');
+
+            const employeeKey = leave.teacherId
+                ? `T:${leave.teacherId}`
+                : `S:${leave.staffId}`;
+            const year = start.getUTCFullYear();
+
+            // Lock balance row
+            const [balance] = await tx.$queryRaw`
+        SELECT id, allocated_days, used_days
+        FROM leave_balances
+        WHERE school_id = ${schoolId}::uuid
+          AND leave_type_id = ${leave.leaveTypeId}::uuid
+          AND employee_key = ${employeeKey}
+          AND year = ${year}
+        FOR UPDATE
+      `;
+            if (!balance) {
+                throw new BadRequestError(
+                    `No leave balance configured for ${employeeKey} / ${year}. Run resetLeaveBalances first.`,
+                );
+            }
+            const remaining = balance.allocated_days - balance.used_days;
+            if (remaining < days) {
+                throw new BadRequestError(
+                    `Insufficient leave balance: requested ${days}, remaining ${remaining}`,
+                );
+            }
 
             const updated = await tx.leaveRequest.update({
                 where: { id: leaveRequestId },
@@ -65,38 +160,38 @@ export class HRService {
                 },
             });
 
-            // Calculate days difference
-            const diffTime = Math.abs(new Date(leave.endDate) - new Date(leave.startDate));
-            const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+            await tx.leaveBalance.update({
+                where: { id: balance.id },
+                data: { usedDays: { increment: days } },
+            });
 
-            // Decrement balance using the compound key
-            const employeeKey = leave.teacherId ? `T:${leave.teacherId}` : `S:${leave.staffId}`;
-            const currentYear = new Date(leave.startDate).getFullYear();
-
-            await tx.leaveBalance.updateMany({
-                where: {
+            await recordAudit(
+                {
+                    action: 'UPDATE',
+                    actorId: actor.id,
                     schoolId,
-                    leaveTypeId: leave.leaveTypeId,
-                    employeeKey,
-                    year: currentYear,
+                    entityType: 'LeaveRequest',
+                    entityId: leaveRequestId,
+                    metadata: { status: 'APPROVED', daysDeducted: days, employeeKey, year },
+                    ...ctx,
                 },
-                data: {
-                    usedDays: { increment: days },
-                },
-            });
+                tx,
+            );
 
-            await recordAudit({
-                action: 'UPDATE',
-                actorId: actor.id,
-                schoolId,
-                entityType: 'LeaveRequest',
-                entityId: leaveRequestId,
-                metadata: { status: 'APPROVED', daysDeducted: days },
-                ipAddress,
-                userAgent,
-            });
-
-            return updated;
+            return { ...updated, daysDeducted: days };
         });
+    }
+
+    /** Count Mon-Fri days between two dates, inclusive. */
+    static _workingDaysBetween(start, end) {
+        let count = 0;
+        const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
+        const last = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+        while (cursor <= last) {
+            const dow = cursor.getUTCDay();
+            if (dow !== 0 && dow !== 6) count++;
+            cursor.setUTCDate(cursor.getUTCDate() + 1);
+        }
+        return count;
     }
 }

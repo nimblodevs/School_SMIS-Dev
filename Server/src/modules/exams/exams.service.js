@@ -1,4 +1,4 @@
-import { prisma } from '../../config/prisma.js';
+import { prisma, runTransaction } from '../../config/prisma.js';
 import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
 import { recordAudit } from '../../shared/audit.js';
 
@@ -40,7 +40,7 @@ export class ExamsService {
         });
         if (!exam) throw new NotFoundError('Exam not found');
 
-        const processed = await prisma.$transaction(async (tx) => {
+        const processed = await runTransaction(async (tx) => {
             const ops = results.map((res) => {
                 if (Number(res.score) > Number(exam.maxScore)) {
                     throw new BadRequestError(`Score ${res.score} exceeds max score of ${exam.maxScore}`);

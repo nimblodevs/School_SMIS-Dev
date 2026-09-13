@@ -1,4 +1,4 @@
-import { prisma } from '../../config/prisma.js';
+import { prisma, runTransaction } from '../../config/prisma.js';
 import { recordAudit } from '../../shared/audit.js';
 import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
 
@@ -9,7 +9,7 @@ export class AcademicsService {
         const schoolId = actor.schoolId;
         if (!schoolId) throw new BadRequestError('User must belong to a school');
 
-        const result = await prisma.$transaction(async (tx) => {
+        const result = await runTransaction(async (tx) => {
             if (input.isCurrent) {
                 await tx.academicYear.updateMany({
                     where: { schoolId, isCurrent: true },

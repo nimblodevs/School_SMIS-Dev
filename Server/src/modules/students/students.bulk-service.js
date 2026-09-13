@@ -1,8 +1,9 @@
 import * as XLSX from 'xlsx';
-import { prisma } from '../../config/prisma.js';
+import { prisma, runTransaction } from '../../config/prisma.js';
 import { bulkStudentRowSchema } from './students.bulk-validation.js';
 import { recordAudit } from '../../shared/audit.js';
 import { BadRequestError } from '../../shared/errors/AppError.js';
+import { nextAdmissionNo } from '../../shared/sequences.js';
 
 export class BulkAdmissionService {
     /**
@@ -28,11 +29,12 @@ export class BulkAdmissionService {
         // Pre-fetch existing unique IDs in school to optimize validation
         const existingStudents = await prisma.student.findMany({
             where: { schoolId },
-            select: { nationalIdNumber: true, birthCertificateNumber: true },
+            select: { nationalIdNumber: true, birthCertificateNumber: true, passportNumber: true },
         });
 
         const existingNationalIds = new Set(existingStudents.map((s) => s.nationalIdNumber));
         const existingBirthCerts = new Set(existingStudents.map((s) => s.birthCertificateNumber));
+        const existingPassports = new Set(existingStudents.map((s) => s.passportNumber).filter(Boolean));
 
         // 2. Validate Row-by-Row
         for (let index = 0; index < rawData.length; index++) {
@@ -60,6 +62,9 @@ export class BulkAdmissionService {
             if (existingBirthCerts.has(data.birthCertificateNumber)) {
                 rowErrors.push(`Birth Cert '${data.birthCertificateNumber}' already exists in database`);
             }
+            if (data.passportNumber && existingPassports.has(data.passportNumber)) {
+                rowErrors.push(`Passport '${data.passportNumber}' already exists in database`);
+            }
 
             if (rowErrors.length > 0) {
                 validationErrors.push({ row: rowNum, errors: rowErrors });
@@ -67,6 +72,7 @@ export class BulkAdmissionService {
                 // Track unique values locally to prevent duplicates within the same upload file
                 existingNationalIds.add(data.nationalIdNumber);
                 existingBirthCerts.add(data.birthCertificateNumber);
+                if (data.passportNumber) existingPassports.add(data.passportNumber);
                 validRows.push({ data, rowNum });
             }
         }
@@ -88,16 +94,25 @@ export class BulkAdmissionService {
             select: { schoolCode: true },
         });
 
-        const currentYear = new Date().getFullYear();
-        const startSequence = await prisma.student.count({ where: { schoolId } });
-
-        const createdStudents = await prisma.$transaction(async (tx) => {
+        const createdStudents = await runTransaction(async (tx) => {
             const results = [];
+
+            const placementIds = validRows.reduce((ids, { data }) => {
+                ids.streamIds.add(data.streamId);
+                ids.academicYearIds.add(data.academicYearId);
+                return ids;
+            }, { streamIds: new Set(), academicYearIds: new Set() });
+            const [streams, academicYears] = await Promise.all([
+                tx.stream.findMany({ where: { schoolId, id: { in: [...placementIds.streamIds] } }, select: { id: true } }),
+                tx.academicYear.findMany({ where: { schoolId, id: { in: [...placementIds.academicYearIds] } }, select: { id: true } }),
+            ]);
+            if (streams.length !== placementIds.streamIds.size || academicYears.length !== placementIds.academicYearIds.size) {
+                throw new BadRequestError('Bulk placement contains a stream or academic year from another school');
+            }
 
             for (let i = 0; i < validRows.length; i++) {
                 const { data } = validRows[i];
-                const sequenceNo = startSequence + i + 1;
-                const admissionNo = `${school.schoolCode || 'SCH'}/${currentYear}/${String(sequenceNo).padStart(4, '0')}`;
+                const admissionNo = await nextAdmissionNo(tx, schoolId, school.schoolCode);
 
                 // Create Student
                 const student = await tx.student.create({

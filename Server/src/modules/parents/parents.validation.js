@@ -11,6 +11,10 @@ export const createParentSchema = z.object({
     email: z.string().email('Invalid email address').optional().or(z.literal('')),
     relation: RelationEnum.default('GUARDIAN'),
     createPortalAccount: z.boolean().default(false),
+}).superRefine((value, context) => {
+    if (value.createPortalAccount && !value.email) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ['email'], message: 'Email is required for a portal account' });
+    }
 });
 
 export const updateParentSchema = createParentSchema.partial();

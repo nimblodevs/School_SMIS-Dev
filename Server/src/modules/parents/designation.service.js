@@ -1,4 +1,4 @@
-import { prisma } from '../../config/prisma.js';
+import { prisma, runTransaction } from '../../config/prisma.js';
 import { recordAudit } from '../../shared/audit.js';
 import { NotFoundError, BadRequestError } from '../../shared/errors/AppError.js';
 
@@ -22,7 +22,7 @@ export class ParentDesignationService {
             throw new NotFoundError('Student-Parent linkage not found in this school');
         }
 
-        const updatedLink = await prisma.$transaction(async (tx) => {
+        const updatedLink = await runTransaction(async (tx) => {
             // If setting as Primary Contact, unset any previously designated primary contact for this student
             if (designations.isPrimaryContact === true) {
                 await tx.studentParent.updateMany({

@@ -8,7 +8,7 @@ import { errorHandler } from './api/middlewares/errorHandler.js';
 import { originGuard } from './api/middlewares/originGuard.js';
 import apiRouter from './api/routes.js';
 import { requestLogger } from './config/logger.js';
-import { getActiveTraceId } from './config/tracing.js';
+import { getOrCreateTraceId, runWithTraceId } from './config/tracing.js';
 
 const app = express();
 const allowedOrigins = env.CLIENT_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean);
@@ -32,12 +32,10 @@ app.use(helmet());
 app.use(hpp());
 app.use(requestLogger);
 app.use((req, res, next) => {
-    const traceId = getActiveTraceId() || req.id;
-    if (traceId) {
-        res.setHeader('X-Trace-Id', traceId);
-        res.setHeader('X-Request-Id', req.id || traceId);
-    }
-    next();
+    const traceId = getOrCreateTraceId(req.id);
+    res.setHeader('X-Trace-Id', traceId);
+    res.setHeader('X-Request-Id', req.id || traceId);
+    runWithTraceId(traceId, next);
 });
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));

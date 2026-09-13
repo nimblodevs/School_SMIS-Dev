@@ -1,4 +1,5 @@
-import { prisma } from '../../config/prisma.js';
+import { prisma, runTransaction } from '../../config/prisma.js';
+import { nextAdmissionNo } from '../../shared/sequences.js';
 import { recordAudit } from '../../shared/audit.js';
 import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
 
@@ -61,20 +62,22 @@ export class StudentService {
             throw new BadRequestError('User context must belong to a school to perform admissions');
         }
 
-        const student = await prisma.$transaction(async (tx) => {
+        const student = await runTransaction(async (tx) => {
             // 1. Fetch school details to format admission number
             const school = await tx.school.findUnique({
                 where: { id: schoolId },
-                select: { schoolCode: true, nextStaffSequence: true },
+                select: { schoolCode: true },
             });
 
             if (!school) throw new NotFoundError('School record not found');
 
-            // Count students in the school to calculate sequence
-            const totalStudents = await tx.student.count({ where: { schoolId } });
-            const sequenceNo = totalStudents + 1;
-            const currentYear = new Date().getFullYear();
-            const admissionNo = `${school.schoolCode || 'SCH'}/${currentYear}/${String(sequenceNo).padStart(4, '0')}`;
+            const admissionNo = await nextAdmissionNo(tx, schoolId, school.schoolCode);
+
+            const [stream, academicYear] = await Promise.all([
+                tx.stream.findFirst({ where: { id: input.streamId, schoolId }, select: { id: true } }),
+                tx.academicYear.findFirst({ where: { id: input.academicYearId, schoolId }, select: { id: true } }),
+            ]);
+            if (!stream || !academicYear) throw new BadRequestError('Initial placement does not belong to this school');
 
             // 2. Create Student Record
             const newStudent = await tx.student.create({
@@ -105,6 +108,9 @@ export class StudentService {
 
             // 4. Link Parents/Guardians if provided
             if (input.parents && input.parents.length > 0) {
+                const parentIds = [...new Set(input.parents.map((parent) => parent.parentId))];
+                const parents = await tx.parent.findMany({ where: { id: { in: parentIds }, schoolId }, select: { id: true } });
+                if (parents.length !== parentIds.length) throw new BadRequestError('One or more parents do not belong to this school');
                 await tx.studentParent.createMany({
                     data: input.parents.map((p) => ({
                         studentId: newStudent.id,
@@ -154,7 +160,7 @@ export class StudentService {
                 : {}),
         };
 
-        const [students, total] = await prisma.$transaction([
+        const [students, total] = await runTransaction([
             prisma.student.findMany({
                 where,
                 select: studentSelect,

@@ -1,4 +1,4 @@
-import { prisma } from '../../config/prisma.js';
+import { prisma, runTransaction } from '../../config/prisma.js';
 import { recordAudit } from '../../shared/audit.js';
 import { BadRequestError } from '../../shared/errors/AppError.js';
 
@@ -10,20 +10,32 @@ export class PromotionService {
         const schoolId = actor.schoolId;
         if (!schoolId) throw new BadRequestError('User context must belong to a school');
 
-        const result = await prisma.$transaction(async (tx) => {
-            // 1. Mark existing active enrollments as COMPLETED
+        const result = await runTransaction(async (tx) => {
+            const uniqueStudentIds = [...new Set(studentIds)];
+            const [sourceStream, targetStream, targetYear, activeEnrollments] = await Promise.all([
+                tx.stream.findFirst({ where: { id: sourceStreamId, schoolId }, select: { id: true } }),
+                tx.stream.findFirst({ where: { id: targetStreamId, schoolId }, select: { id: true } }),
+                tx.academicYear.findFirst({ where: { id: targetAcademicYearId, schoolId }, select: { id: true } }),
+                tx.enrollment.findMany({ where: { schoolId, streamId: sourceStreamId, studentId: { in: uniqueStudentIds }, status: 'ACTIVE' }, select: { studentId: true } }),
+            ]);
+            if (!sourceStream || !targetStream || !targetYear) throw new BadRequestError('Promotion references do not belong to this school');
+            if (activeEnrollments.length !== uniqueStudentIds.length) throw new BadRequestError('One or more students are not active in the source stream');
+
+            const existingTarget = await tx.enrollment.findMany({ where: { schoolId, academicYearId: targetAcademicYearId, studentId: { in: uniqueStudentIds } }, select: { studentId: true } });
+            if (existingTarget.length) throw new BadRequestError('One or more students already have an enrollment for the target academic year');
+
             await tx.enrollment.updateMany({
                 where: {
                     schoolId,
                     streamId: sourceStreamId,
-                    studentId: { in: studentIds },
+                    studentId: { in: uniqueStudentIds },
                     status: 'ACTIVE',
                 },
-                data: { status: 'COMPLETED' },
+                data: { status: 'GRADUATED' },
             });
 
             // 2. Create new ACTIVE enrollments in the target stream
-            const newEnrollments = studentIds.map((studentId) => ({
+            const newEnrollments = uniqueStudentIds.map((studentId) => ({
                 schoolId,
                 studentId,
                 streamId: targetStreamId,
@@ -35,7 +47,7 @@ export class PromotionService {
                 data: newEnrollments,
             });
 
-            return { promotedCount: studentIds.length };
+            return { promotedCount: uniqueStudentIds.length };
         });
 
         await recordAudit({

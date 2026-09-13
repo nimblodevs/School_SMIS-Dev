@@ -1,4 +1,4 @@
-import { prisma } from '../../config/prisma.js';
+import { prisma, runTransaction } from '../../config/prisma.js';
 import { recordAudit } from '../../shared/audit.js';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../../shared/errors/AppError.js';
 
@@ -39,7 +39,7 @@ function isUniqueConstraintError(error) {
 export class SchoolService {
     static async create(input, actor, { ipAddress, userAgent } = {}) {
         try {
-            const school = await prisma.$transaction(async (transaction) => {
+            const school = await runTransaction(async (transaction) => {
                 const sequence = await transaction.systemSequence.upsert({
                     where: { key: 'SCHOOL_CODE' },
                     update: { nextSchoolCode: { increment: 1 } },
@@ -95,7 +95,7 @@ export class SchoolService {
                 ],
             } : {}),
         };
-        const [schools, total] = await prisma.$transaction([
+        const [schools, total] = await runTransaction([
             prisma.school.findMany({ where, select: schoolSelect, orderBy: { name: 'asc' }, skip: (page - 1) * pageSize, take: pageSize }),
             prisma.school.count({ where }),
         ]);

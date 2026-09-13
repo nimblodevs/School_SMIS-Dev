@@ -44,6 +44,15 @@ export async function sendTemporaryCredentials({ to, firstName, role, temporaryP
     });
 }
 
+export async function sendParentActivationInvite({ to, firstName, token }) {
+    await getTransporter().sendMail({
+        from: env.SMTP_FROM || env.SMTP_USER,
+        to,
+        subject: 'Activate your School SMIS parent account',
+        text: `Hello ${firstName},\n\nUse this activation token to activate your parent account: ${token}\n\nThis token expires in 48 hours.`,
+    });
+}
+
 export async function sendPayslipEmail({ to, employeeName, month, downloadUrl }) {
     await getTransporter().sendMail({
         from: env.SMTP_FROM || env.SMTP_USER,

@@ -3,8 +3,12 @@ import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { ExpressInstrumentation } from '@opentelemetry/instrumentation-express';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { NodeSDK } from '@opentelemetry/sdk-node';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomBytes } from 'node:crypto';
 import { env } from './env.js';
 import { logger } from './logger.js';
+
+const traceContext = new AsyncLocalStorage();
 
 const exporter = env.OTEL_EXPORTER_OTLP_ENDPOINT
     ? new OTLPTraceExporter({ url: env.OTEL_EXPORTER_OTLP_ENDPOINT })
@@ -27,7 +31,19 @@ process.once('SIGTERM', async () => {
 });
 
 export function getActiveTraceId() {
-    return trace.getActiveSpan()?.spanContext().traceId || null;
+    return trace.getActiveSpan()?.spanContext().traceId || traceContext.getStore()?.traceId || null;
+}
+
+export function createTraceId() {
+    return randomBytes(16).toString('hex');
+}
+
+export function getOrCreateTraceId(preferredTraceId = null) {
+    return getActiveTraceId() || preferredTraceId || createTraceId();
+}
+
+export function runWithTraceId(traceId, callback) {
+    return traceContext.run({ traceId }, callback);
 }
 
 export function recordAuditTrace(name, attributes = {}) {

@@ -11,6 +11,7 @@ import reportCardRoutes from '../modules/academics/report-card.routes.js';
 import payrollRoutes from '../modules/payroll/payroll.routes.js';
 import hrRoutes from '../modules/humanresource/hr.routes.js';
 import jobRoutes from '../modules/jobs/jobs.routes.js';
+import financeRoutes from '../modules/finance/finance.routes.js';
 
 const router = Router();
 
@@ -25,6 +26,7 @@ router.use('/reports', reportCardRoutes);
 router.use('/payroll', payrollRoutes);
 router.use('/hr', hrRoutes);
 router.use('/jobs', jobRoutes);
+router.use('/finance', financeRoutes);
 router.use('/audit-logs', auditRoutes);
 
 export default router;
