@@ -1,40 +1,98 @@
 import { prisma, runTransaction } from '../../config/prisma.js';
 import { recordAudit } from '../../shared/audit.js';
-import { BadRequestError } from '../../shared/errors/AppError.js';
+import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
+import { assertOwnership, resolveSchoolId } from '../../shared/ownership.js';
+
+const PROMOTION_BATCH_LIMIT = 500;
 
 export class PromotionService {
     /**
-     * Mass promotes students from sourceStream to targetStream.
+     * Mass promote students from sourceStream to targetStream.
+     *
+     * @param {object} input
+     * @param {string} input.sourceStreamId
+     * @param {string} input.targetStreamId
+     * @param {string} input.targetAcademicYearId
+     * @param {string[]} input.studentIds
+     * @param {boolean} [input.dryRun]   preview without writing
      */
-    static async promoteStream({ sourceStreamId, targetStreamId, targetAcademicYearId, studentIds }, actor, { ipAddress, userAgent } = {}) {
-        const schoolId = actor.schoolId;
-        if (!schoolId) throw new BadRequestError('User context must belong to a school');
+    static async promoteStream(input, actor, ctx = {}) {
+        const schoolId = resolveSchoolId(actor, input.schoolId);
+        const {
+            sourceStreamId,
+            targetStreamId,
+            targetAcademicYearId,
+            studentIds,
+            dryRun = false,
+        } = input;
+
+        if (!Array.isArray(studentIds) || studentIds.length === 0) {
+            throw new BadRequestError('studentIds must be a non-empty array');
+        }
+        if (studentIds.length > PROMOTION_BATCH_LIMIT) {
+            throw new BadRequestError(
+                `Cannot promote more than ${PROMOTION_BATCH_LIMIT} students in one batch`,
+            );
+        }
+
+        const uniqueStudentIds = [...new Set(studentIds)];
 
         const result = await runTransaction(async (tx) => {
-            const uniqueStudentIds = [...new Set(studentIds)];
-            const [sourceStream, targetStream, targetYear, activeEnrollments] = await Promise.all([
-                tx.stream.findFirst({ where: { id: sourceStreamId, schoolId }, select: { id: true } }),
-                tx.stream.findFirst({ where: { id: targetStreamId, schoolId }, select: { id: true } }),
-                tx.academicYear.findFirst({ where: { id: targetAcademicYearId, schoolId }, select: { id: true } }),
-                tx.enrollment.findMany({ where: { schoolId, streamId: sourceStreamId, studentId: { in: uniqueStudentIds }, status: 'ACTIVE' }, select: { studentId: true } }),
+            // ---- 1. Verify every reference belongs to this school ----
+            await assertOwnership(tx, schoolId, [
+                { model: 'stream', id: sourceStreamId, label: 'Source stream' },
+                { model: 'stream', id: targetStreamId, label: 'Target stream' },
+                { model: 'academicYear', id: targetAcademicYearId, label: 'Target academic year' },
             ]);
-            if (!sourceStream || !targetStream || !targetYear) throw new BadRequestError('Promotion references do not belong to this school');
-            if (activeEnrollments.length !== uniqueStudentIds.length) throw new BadRequestError('One or more students are not active in the source stream');
 
-            const existingTarget = await tx.enrollment.findMany({ where: { schoolId, academicYearId: targetAcademicYearId, studentId: { in: uniqueStudentIds } }, select: { studentId: true } });
-            if (existingTarget.length) throw new BadRequestError('One or more students already have an enrollment for the target academic year');
-
-            await tx.enrollment.updateMany({
+            // ---- 2. All students must be actively enrolled in the source stream ----
+            const activeEnrollments = await tx.enrollment.findMany({
                 where: {
                     schoolId,
                     streamId: sourceStreamId,
                     studentId: { in: uniqueStudentIds },
                     status: 'ACTIVE',
                 },
-                data: { status: 'GRADUATED' },
+                select: { id: true, studentId: true },
+            });
+            if (activeEnrollments.length !== uniqueStudentIds.length) {
+                const found = new Set(activeEnrollments.map((e) => e.studentId));
+                const missing = uniqueStudentIds.filter((id) => !found.has(id));
+                throw new BadRequestError(
+                    `${missing.length} student(s) are not actively enrolled in the source stream`,
+                );
+            }
+
+            // ---- 3. No student can already have an enrollment in the target year ----
+            const existingTarget = await tx.enrollment.findMany({
+                where: {
+                    schoolId,
+                    academicYearId: targetAcademicYearId,
+                    studentId: { in: uniqueStudentIds },
+                },
+                select: { studentId: true },
+            });
+            if (existingTarget.length > 0) {
+                throw new BadRequestError(
+                    `${existingTarget.length} student(s) already have an enrollment for the target academic year`,
+                );
+            }
+
+            if (dryRun) {
+                return {
+                    dryRun: true,
+                    wouldPromote: uniqueStudentIds.length,
+                    sourceEnrollmentIds: activeEnrollments.map((e) => e.id),
+                };
+            }
+
+            // ---- 4. Close the source enrollment as COMPLETED (not GRADUATED) ----
+            await tx.enrollment.updateMany({
+                where: { id: { in: activeEnrollments.map((e) => e.id) } },
+                data: { status: 'COMPLETED' },
             });
 
-            // 2. Create new ACTIVE enrollments in the target stream
+            // ---- 5. Create new ACTIVE enrollments in the target ----
             const newEnrollments = uniqueStudentIds.map((studentId) => ({
                 schoolId,
                 studentId,
@@ -43,22 +101,31 @@ export class PromotionService {
                 status: 'ACTIVE',
             }));
 
-            await tx.enrollment.createMany({
-                data: newEnrollments,
-            });
+            await tx.enrollment.createMany({ data: newEnrollments });
 
-            return { promotedCount: uniqueStudentIds.length };
-        });
+            // ---- 6. Audit ----
+            await recordAudit(
+                {
+                    action: 'UPDATE',
+                    actorId: actor.id,
+                    schoolId,
+                    entityType: 'EnrollmentBatch',
+                    entityId: `${sourceStreamId}->${targetStreamId}`,
+                    metadata: {
+                        sourceStreamId,
+                        targetStreamId,
+                        targetAcademicYearId,
+                        promotedCount: uniqueStudentIds.length,
+                    },
+                    ...ctx,
+                },
+                tx,
+            );
 
-        await recordAudit({
-            action: 'UPDATE',
-            actorId: actor.id,
-            schoolId,
-            entityType: 'Enrollment',
-            entityId: sourceStreamId,
-            metadata: { targetStreamId, count: result.promotedCount },
-            ipAddress,
-            userAgent,
+            return {
+                dryRun: false,
+                promotedCount: uniqueStudentIds.length,
+            };
         });
 
         return result;

@@ -186,7 +186,7 @@ export class FinanceService {
                 throw new NotFoundError(`Invoice ${alloc.invoiceId} not found`);
             }
 
-                        // Compute outstanding from the current schema and active allocations.
+            // Compute outstanding from the current schema and active allocations.
             const [balanceRow] = await tx.$queryRaw`
         SELECT
                     (SELECT "amountDue" FROM invoices WHERE id = ${alloc.invoiceId})

@@ -7,140 +7,154 @@ import {
     createSubjectSchema,
     assignTeacherSubjectSchema,
     assignClassSubjectSchema,
+    listQuerySchema,
 } from './academics.validation.js';
 import { BadRequestError } from '../../shared/errors/AppError.js';
 
+function parse(schema, payload) {
+    const result = schema.safeParse(payload);
+    if (!result.success) {
+        // Flatten to { field: message } so we don't leak Zod internals.
+        const flat = result.error.flatten();
+        const details = {};
+        for (const [field, messages] of Object.entries(flat.fieldErrors)) {
+            if (messages && messages.length) details[field] = messages[0];
+        }
+        for (const message of flat.formErrors) {
+            details._form = message;
+        }
+        throw new BadRequestError('Validation failed', details);
+    }
+    return result.data;
+}
+
+const ctxOf = (req) => ({
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+});
+
 export class AcademicsController {
+    // ---------------------------------------------------------------------
     // Academic Years
+    // ---------------------------------------------------------------------
+
     static async createAcademicYear(req, res, next) {
         try {
-            const validation = createAcademicYearSchema.safeParse(req.body);
-            if (!validation.success) throw new BadRequestError('Validation error', validation.error.format());
-
-            const data = await AcademicsService.createAcademicYear(validation.data, req.user, {
-                ipAddress: req.ip,
-                userAgent: req.headers['user-agent'],
-            });
-            return res.status(201).json({ success: true, message: 'Academic Year created', data });
+            const input = parse(createAcademicYearSchema, req.body);
+            const data = await AcademicsService.createAcademicYear(input, req.user, ctxOf(req));
+            return res.status(201).json({ success: true, message: 'Academic year created', data });
         } catch (err) {
-            next(err);
+            return next(err);
         }
     }
 
     static async listAcademicYears(req, res, next) {
         try {
-            const schoolId = req.user.role === 'SUPER_ADMIN' ? req.query.schoolId : req.user.schoolId;
-            const data = await AcademicsService.listAcademicYears(schoolId);
+            const query = parse(listQuerySchema, req.query);
+            const data = await AcademicsService.listAcademicYears(req.user, query);
             return res.status(200).json({ success: true, data });
         } catch (err) {
-            next(err);
+            return next(err);
         }
     }
 
+    // ---------------------------------------------------------------------
     // Terms
+    // ---------------------------------------------------------------------
+
     static async createTerm(req, res, next) {
         try {
-            const validation = createTermSchema.safeParse(req.body);
-            if (!validation.success) throw new BadRequestError('Validation error', validation.error.format());
-
-            const data = await AcademicsService.createTerm(validation.data, req.user, {
-                ipAddress: req.ip,
-                userAgent: req.headers['user-agent'],
-            });
-            return res.status(201).json({ success: true, message: 'Term created successfully', data });
+            const input = parse(createTermSchema, req.body);
+            const data = await AcademicsService.createTerm(input, req.user, ctxOf(req));
+            return res.status(201).json({ success: true, message: 'Term created', data });
         } catch (err) {
-            next(err);
+            return next(err);
         }
     }
 
-    // Class Levels & Streams
+    // ---------------------------------------------------------------------
+    // Class Levels
+    // ---------------------------------------------------------------------
+
     static async createClassLevel(req, res, next) {
         try {
-            const validation = createClassLevelSchema.safeParse(req.body);
-            if (!validation.success) throw new BadRequestError('Validation error', validation.error.format());
-
-            const data = await AcademicsService.createClassLevel(validation.data, req.user, {
-                ipAddress: req.ip,
-                userAgent: req.headers['user-agent'],
-            });
+            const input = parse(createClassLevelSchema, req.body);
+            const data = await AcademicsService.createClassLevel(input, req.user, ctxOf(req));
             return res.status(201).json({ success: true, message: 'Class level created', data });
         } catch (err) {
-            next(err);
+            return next(err);
         }
     }
 
     static async listClassLevels(req, res, next) {
         try {
-            const schoolId = req.user.role === 'SUPER_ADMIN' ? req.query.schoolId : req.user.schoolId;
-            const data = await AcademicsService.listClassLevels(schoolId);
+            const query = parse(listQuerySchema, req.query);
+            const data = await AcademicsService.listClassLevels(req.user, query);
             return res.status(200).json({ success: true, data });
         } catch (err) {
-            next(err);
+            return next(err);
         }
     }
+
+    // ---------------------------------------------------------------------
+    // Streams
+    // ---------------------------------------------------------------------
 
     static async createStream(req, res, next) {
         try {
-            const validation = createStreamSchema.safeParse(req.body);
-            if (!validation.success) throw new BadRequestError('Validation error', validation.error.format());
-
-            const data = await AcademicsService.createStream(validation.data, req.user, {
-                ipAddress: req.ip,
-                userAgent: req.headers['user-agent'],
-            });
+            const input = parse(createStreamSchema, req.body);
+            const data = await AcademicsService.createStream(input, req.user, ctxOf(req));
             return res.status(201).json({ success: true, message: 'Stream created', data });
         } catch (err) {
-            next(err);
+            return next(err);
         }
     }
 
-    // Subjects & Assignments
+    // ---------------------------------------------------------------------
+    // Subjects
+    // ---------------------------------------------------------------------
+
     static async createSubject(req, res, next) {
         try {
-            const validation = createSubjectSchema.safeParse(req.body);
-            if (!validation.success) throw new BadRequestError('Validation error', validation.error.format());
-
-            const data = await AcademicsService.createSubject(validation.data, req.user, {
-                ipAddress: req.ip,
-                userAgent: req.headers['user-agent'],
-            });
+            const input = parse(createSubjectSchema, req.body);
+            const data = await AcademicsService.createSubject(input, req.user, ctxOf(req));
             return res.status(201).json({ success: true, message: 'Subject created', data });
         } catch (err) {
-            next(err);
+            return next(err);
         }
     }
 
     static async listSubjects(req, res, next) {
         try {
-            const schoolId = req.user.role === 'SUPER_ADMIN' ? req.query.schoolId : req.user.schoolId;
-            const data = await AcademicsService.listSubjects(schoolId);
+            const query = parse(listQuerySchema, req.query);
+            const data = await AcademicsService.listSubjects(req.user, query);
             return res.status(200).json({ success: true, data });
         } catch (err) {
-            next(err);
+            return next(err);
         }
     }
 
+    // ---------------------------------------------------------------------
+    // Assignments
+    // ---------------------------------------------------------------------
+
     static async assignTeacherSubject(req, res, next) {
         try {
-            const validation = assignTeacherSubjectSchema.safeParse(req.body);
-            if (!validation.success) throw new BadRequestError('Validation error', validation.error.format());
-
-            const data = await AcademicsService.assignTeacherSubject(validation.data);
-            return res.status(200).json({ success: true, message: 'Subject assigned to teacher', data });
+            const input = parse(assignTeacherSubjectSchema, req.body);
+            const data = await AcademicsService.assignTeacherSubject(input, req.user, ctxOf(req));
+            return res.status(201).json({ success: true, message: 'Subject assigned to teacher', data });
         } catch (err) {
-            next(err);
+            return next(err);
         }
     }
 
     static async assignClassSubject(req, res, next) {
         try {
-            const validation = assignClassSubjectSchema.safeParse(req.body);
-            if (!validation.success) throw new BadRequestError('Validation error', validation.error.format());
-
-            const data = await AcademicsService.assignClassSubject(validation.data, req.user);
-            return res.status(200).json({ success: true, message: 'Subject allocated to stream', data });
+            const input = parse(assignClassSubjectSchema, req.body);
+            const data = await AcademicsService.assignClassSubject(input, req.user, ctxOf(req));
+            return res.status(201).json({ success: true, message: 'Subject allocated to stream', data });
         } catch (err) {
-            next(err);
+            return next(err);
         }
     }
 }

@@ -15,7 +15,14 @@ import financeRoutes from '../modules/finance/finance.routes.js';
 
 const router = Router();
 
+// ---- Public routes ----
 router.use('/auth', authRoutes);
+
+// ---- Everything below requires authentication ----
+router.use(originGuard);
+router.use(authenticate);
+router.use(globalLimiter);
+
 router.use('/users', userRoutes);
 router.use('/schools', schoolRoutes);
 router.use('/students', studentRoutes);
@@ -30,3 +37,4 @@ router.use('/finance', financeRoutes);
 router.use('/audit-logs', auditRoutes);
 
 export default router;
+

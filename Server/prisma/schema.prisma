@@ -486,9 +486,10 @@ model Stream {
 
 enum EnrollmentStatus {
   ACTIVE
-  TRANSFERRED
-  GRADUATED
-  WITHDRAWN
+  COMPLETED   // finished the year, moving up
+  TRANSFERRED // left to another school
+  GRADUATED   // terminal class, left the system
+  WITHDRAWN   // left mid-year, not returning
 }
 
 model Enrollment {
