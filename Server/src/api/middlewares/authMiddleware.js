@@ -54,7 +54,9 @@ export const authenticate = async (req, res, next) => {
             throw new UnauthorizedError('User account is invalid or deactivated');
         }
         if (user.schoolId && !user.school?.isActive) {
-            throw new UnauthorizedError('The school account associated with your profile is inactive');
+            throw new UnauthorizedError(
+                'The school account associated with your profile is inactive',
+            );
         }
 
         const isImpersonated = Boolean(decoded.isImpersonated);
@@ -63,14 +65,12 @@ export const authenticate = async (req, res, next) => {
         // For normal tokens, it's the subject themselves.
         const sessionOwner = isImpersonated
             ? await prisma.user.findUnique({
-                where: { id: decoded.actorId ?? '' },
-                select: { id: true, currentSessionId: true, isActive: true },
-            })
+                  where: { id: decoded.actorId ?? '' },
+                  select: { id: true, currentSessionId: true, isActive: true },
+              })
             : user;
 
-        const expectedSessionId = isImpersonated
-            ? decoded.actorSessionId
-            : decoded.sessionId;
+        const expectedSessionId = isImpersonated ? decoded.actorSessionId : decoded.sessionId;
 
         if (
             !sessionOwner?.isActive ||
@@ -98,7 +98,9 @@ export const authenticate = async (req, res, next) => {
             !isImpersonated &&
             !pathMatches(req, PASSWORD_EXEMPT_PATHS)
         ) {
-            throw new UnauthorizedError('Password reset is required before accessing this resource');
+            throw new UnauthorizedError(
+                'Password reset is required before accessing this resource',
+            );
         }
 
         // Impersonation audit: only for state-changing requests.
@@ -121,7 +123,11 @@ export const authenticate = async (req, res, next) => {
         }
 
         return tenantContext.run(
-            { schoolId: user.schoolId, actorId: req.user.isImpersonated ? req.user.actorId : user.id, role: user.role },
+            {
+                schoolId: user.schoolId,
+                actorId: req.user.isImpersonated ? req.user.actorId : user.id,
+                role: user.role,
+            },
             next,
         );
     } catch (error) {

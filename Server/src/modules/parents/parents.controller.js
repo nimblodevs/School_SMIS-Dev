@@ -19,7 +19,10 @@ export class ParentController {
             const ipAddress = req.ip || req.headers['x-forwarded-for'];
             const userAgent = req.headers['user-agent'];
 
-            const parent = await ParentService.create(validation.data, req.user, { ipAddress, userAgent });
+            const parent = await ParentService.create(validation.data, req.user, {
+                ipAddress,
+                userAgent,
+            });
             return res.status(201).json({
                 success: true,
                 message: 'Parent registered successfully',
@@ -78,7 +81,10 @@ export class ParentController {
             const ipAddress = req.ip || req.headers['x-forwarded-for'];
             const userAgent = req.headers['user-agent'];
 
-            const parent = await ParentService.update(req.params.id, validation.data, req.user, { ipAddress, userAgent });
+            const parent = await ParentService.update(req.params.id, validation.data, req.user, {
+                ipAddress,
+                userAgent,
+            });
             return res.status(200).json({
                 success: true,
                 message: 'Parent profile updated successfully',
@@ -96,7 +102,11 @@ export class ParentController {
                 throw new BadRequestError('Validation error', validation.error.format());
             }
 
-            const link = await ParentService.linkStudent(req.params.id, validation.data.studentId, req.user);
+            const link = await ParentService.linkStudent(
+                req.params.id,
+                validation.data.studentId,
+                req.user,
+            );
             return res.status(200).json({
                 success: true,
                 message: 'Student linked to parent successfully',
@@ -109,7 +119,11 @@ export class ParentController {
 
     static async unlinkStudent(req, res, next) {
         try {
-            const result = await ParentService.unlinkStudent(req.params.id, req.params.studentId, req.user);
+            const result = await ParentService.unlinkStudent(
+                req.params.id,
+                req.params.studentId,
+                req.user,
+            );
             return res.status(200).json({ success: true, message: result.message });
         } catch (error) {
             next(error);
@@ -130,7 +144,7 @@ export class ParentController {
                 req.params.parentId,
                 validation.data,
                 req.user,
-                { ipAddress, userAgent }
+                { ipAddress, userAgent },
             );
 
             return res.status(200).json({

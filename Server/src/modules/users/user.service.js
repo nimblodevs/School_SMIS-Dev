@@ -15,10 +15,14 @@ export class UserService {
         const schoolId = actor.role === 'SUPER_ADMIN' ? input.schoolId : actor.schoolId;
         if (!schoolId) throw new BadRequestError('schoolId is required for employee provisioning');
 
-        const school = await prisma.school.findUnique({ where: { id: schoolId }, select: { id: true, schoolCode: true, isActive: true } });
+        const school = await prisma.school.findUnique({
+            where: { id: schoolId },
+            select: { id: true, schoolCode: true, isActive: true },
+        });
         if (!school) throw new NotFoundError('School not found');
         if (!school.isActive) throw new BadRequestError('The school account is inactive');
-        if (!/^\d{5}$/.test(school.schoolCode)) throw new BadRequestError('The school must have a valid five-digit school code');
+        if (!/^\d{5}$/.test(school.schoolCode))
+            throw new BadRequestError('The school must have a valid five-digit school code');
 
         const temporaryPassword = generateTemporaryPassword(school.schoolCode);
         const userId = randomUUID();
@@ -28,7 +32,10 @@ export class UserService {
         let generatedEmployeeNo;
 
         const user = await runTransaction(async (transaction) => {
-            const existingUser = await transaction.user.findFirst({ where: { OR: [{ email: input.email }, { username: input.username }] }, select: { id: true } });
+            const existingUser = await transaction.user.findFirst({
+                where: { OR: [{ email: input.email }, { username: input.username }] },
+                select: { id: true },
+            });
             if (existingUser) throw new BadRequestError('A user with this email already exists');
 
             const sequenceField = role === 'TEACHER' ? 'nextTeacherSequence' : 'nextStaffSequence';
@@ -38,7 +45,10 @@ export class UserService {
                 select: { [sequenceField]: true },
             });
             const sequenceNumber = sequence[sequenceField];
-            if (sequenceNumber > 9999) throw new BadRequestError(`The ${role.toLowerCase()} employee sequence has reached its four-digit limit`);
+            if (sequenceNumber > 9999)
+                throw new BadRequestError(
+                    `The ${role.toLowerCase()} employee sequence has reached its four-digit limit`,
+                );
             const ownerKey = `${role === 'TEACHER' ? 'T' : 'S'}:${profileId}`;
             const employeeNo = `${role === 'TEACHER' ? 'T' : 'S'}${school.schoolCode}${String(sequenceNumber).padStart(4, '0')}`;
             generatedOwnerKey = ownerKey;
@@ -119,7 +129,9 @@ export class UserService {
             });
         } catch (error) {
             await prisma.user.update({ where: { id: user.id }, data: { isActive: false } });
-            throw new BadRequestError('Employee was created but credentials could not be delivered; the account has been deactivated.');
+            throw new BadRequestError(
+                'Employee was created but credentials could not be delivered; the account has been deactivated.',
+            );
         }
 
         await recordAudit({

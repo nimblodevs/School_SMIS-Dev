@@ -56,19 +56,40 @@ const TENANT_MODELS = new Set([
     'ResignationRecord',
 ]);
 
-function addTenantScope(args, operation, schoolId) {
+export function addTenantScope(args, operation, schoolId) {
     const scopedArgs = { ...args };
 
-    if (['findUnique', 'findFirst', 'findMany', 'count', 'aggregate', 'groupBy', 'update', 'updateMany', 'delete', 'deleteMany', 'upsert'].includes(operation)) {
+    if (
+        [
+            'findUnique',
+            'findFirst',
+            'findMany',
+            'count',
+            'aggregate',
+            'groupBy',
+            'update',
+            'updateMany',
+            'delete',
+            'deleteMany',
+            'upsert',
+        ].includes(operation)
+    ) {
         scopedArgs.where = { ...(scopedArgs.where || {}), schoolId };
     }
 
-    if (operation === 'create' || operation === 'update' || operation === 'upsert') {
+    if (['create', 'update', 'updateMany'].includes(operation)) {
         scopedArgs.data = { ...(scopedArgs.data || {}), schoolId };
     }
 
+    if (operation === 'upsert') {
+        scopedArgs.create = { ...(scopedArgs.create || {}), schoolId };
+        scopedArgs.update = { ...(scopedArgs.update || {}), schoolId };
+    }
+
     if (operation === 'createMany') {
-        scopedArgs.data = scopedArgs.data.map((data) => ({ ...data, schoolId }));
+        scopedArgs.data = Array.isArray(scopedArgs.data)
+            ? scopedArgs.data.map((data) => ({ ...data, schoolId }))
+            : { ...scopedArgs.data, schoolId };
     }
 
     return scopedArgs;
@@ -81,9 +102,7 @@ function createPrismaClient() {
         log: [
             { emit: 'event', level: 'error' },
             { emit: 'event', level: 'warn' },
-            ...(env.NODE_ENV === 'development'
-                ? [{ emit: 'event', level: 'query' }]
-                : []),
+            ...(env.NODE_ENV === 'development' ? [{ emit: 'event', level: 'query' }] : []),
         ],
     });
 

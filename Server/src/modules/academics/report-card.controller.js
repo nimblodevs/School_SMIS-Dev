@@ -26,9 +26,7 @@ export class ReportCardController {
     static async getTermReports(req, res, next) {
         try {
             const termId = parse(UuidString, req.params.termId);
-            const studentId = req.params.studentId
-                ? parse(UuidString, req.params.studentId)
-                : null;
+            const studentId = req.params.studentId ? parse(UuidString, req.params.studentId) : null;
             const { rankBy } = parse(reportQuerySchema, req.query);
 
             const data = await ReportCardService.generateTermReports(termId, req.user, {

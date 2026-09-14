@@ -14,7 +14,9 @@ const envSchema = z.object({
     TRUST_PROXY: z.coerce.boolean().default(false),
     LOGIN_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
     LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
-    LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+    LOG_LEVEL: z
+        .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
+        .default('info'),
     GOOGLE_CLIENT_ID: z.string().optional(),
     SMTP_HOST: z.string().optional(),
     SMTP_PORT: z.coerce.number().int().optional(),

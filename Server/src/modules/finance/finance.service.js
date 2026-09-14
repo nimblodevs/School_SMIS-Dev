@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma, runTransaction } from '../../config/prisma.js';
 import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
 import { recordAudit } from '../../shared/audit.js';
-import { nextInvoiceNo, nextPayslipNo } from '../../shared/sequences.js';
+import { nextInvoiceNo } from '../../shared/sequences.js';
 
 const D = (v) => new Prisma.Decimal(v); // guard against float input
 
@@ -218,8 +218,8 @@ export class FinanceService {
             const nextStatus = after.lte(0)
                 ? 'PAID'
                 : after.lt(D(invoice.amount_due))
-                    ? 'PARTIALLY_PAID'
-                    : 'UNPAID';
+                  ? 'PARTIALLY_PAID'
+                  : 'UNPAID';
             await tx.invoice.update({
                 where: { id: alloc.invoiceId },
                 data: { amountPaid: D(invoice.amount_due).minus(after), status: nextStatus },
@@ -232,30 +232,62 @@ export class FinanceService {
 
     static _accountForMethod(method) {
         switch (method) {
-            case 'MPESA': return '1010-MPESA';
-            case 'CASH': return '1000-CASH';
+            case 'MPESA':
+                return '1010-MPESA';
+            case 'CASH':
+                return '1000-CASH';
             case 'BANK_DEPOSIT':
-            case 'BANK_TRANSFER': return '1020-BANK';
-            case 'CHEQUE': return '1030-CHEQUES';
-            case 'CARD': return '1040-CARD';
-            default: throw new BadRequestError(`Unknown payment method: ${method}`);
+            case 'BANK_TRANSFER':
+                return '1020-BANK';
+            case 'CHEQUE':
+                return '1030-CHEQUES';
+            case 'CARD':
+                return '1040-CARD';
+            default:
+                throw new BadRequestError(`Unknown payment method: ${method}`);
         }
     }
 
     /** Writes a balanced DEBIT/CREDIT pair. */
-    static async _postLedger(tx, { schoolId, debitAccount, creditAccount, amount, referenceType, referenceId, narration, postedById }) {
+    static async _postLedger(
+        tx,
+        {
+            schoolId,
+            debitAccount,
+            creditAccount,
+            amount,
+            referenceType,
+            referenceId,
+            narration,
+            postedById,
+        },
+    ) {
         const entryDate = new Date();
         await tx.ledgerEntry.createMany({
             data: [
                 {
-                    schoolId, accountCode: debitAccount, accountType: 'ASSET',
-                    direction: 'DEBIT', amount, referenceType, referenceId,
-                    narration, entryDate, postedById,
+                    schoolId,
+                    accountCode: debitAccount,
+                    accountType: 'ASSET',
+                    direction: 'DEBIT',
+                    amount,
+                    referenceType,
+                    referenceId,
+                    narration,
+                    entryDate,
+                    postedById,
                 },
                 {
-                    schoolId, accountCode: creditAccount, accountType: 'REVENUE',
-                    direction: 'CREDIT', amount, referenceType, referenceId,
-                    narration, entryDate, postedById,
+                    schoolId,
+                    accountCode: creditAccount,
+                    accountType: 'REVENUE',
+                    direction: 'CREDIT',
+                    amount,
+                    referenceType,
+                    referenceId,
+                    narration,
+                    entryDate,
+                    postedById,
                 },
             ],
         });

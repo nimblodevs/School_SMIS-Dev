@@ -10,7 +10,10 @@ export class HRController {
                 throw new BadRequestError('Validation Error', validation.error.format());
             }
 
-            const request = await HRService.requestLeave(validation.data, req.user);
+            const request = await HRService.requestLeave(validation.data, req.user, {
+                ipAddress: req.ip,
+                userAgent: req.headers['user-agent'],
+            });
 
             return res.status(201).json({
                 success: true,
@@ -25,11 +28,10 @@ export class HRController {
     static async approveLeave(req, res, next) {
         try {
             const { leaveRequestId } = req.params;
-            const approved = await HRService.approveLeave(
-                leaveRequestId,
-                req.user,
-                { ipAddress: req.ip, userAgent: req.headers['user-agent'] }
-            );
+            const approved = await HRService.approveLeave(leaveRequestId, req.user, {
+                ipAddress: req.ip,
+                userAgent: req.headers['user-agent'],
+            });
 
             return res.status(200).json({
                 success: true,

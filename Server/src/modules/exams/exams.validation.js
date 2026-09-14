@@ -9,13 +9,15 @@ export const createExamSchema = z.object({
 });
 
 export const recordBulkResultsSchema = z.object({
-    results: z.array(
-        z.object({
-            studentId: z.string().uuid(),
-            enrollmentId: z.string().uuid(),
-            score: z.number().nonnegative(),
-            grade: z.string().optional(),
-            remarks: z.string().optional(),
-        })
-    ).min(1, 'Results payload cannot be empty'),
+    results: z
+        .array(
+            z.object({
+                studentId: z.string().uuid(),
+                enrollmentId: z.string().uuid(),
+                score: z.number().nonnegative(),
+                grade: z.string().optional(),
+                remarks: z.string().optional(),
+            }),
+        )
+        .min(1, 'Results payload cannot be empty'),
 });

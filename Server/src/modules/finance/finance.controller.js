@@ -36,11 +36,10 @@ export class FinanceController {
                 throw new BadRequestError('Validation Error', validation.error.format());
             }
 
-            const payment = await FinanceService.recordPayment(
-                validation.data,
-                req.user,
-                { ipAddress: req.ip, userAgent: req.headers['user-agent'] }
-            );
+            const payment = await FinanceService.recordPayment(validation.data, req.user, {
+                ipAddress: req.ip,
+                userAgent: req.headers['user-agent'],
+            });
 
             return res.status(201).json({
                 success: true,
@@ -55,7 +54,8 @@ export class FinanceController {
     static async reversePayment(req, res, next) {
         try {
             const validation = reversePaymentSchema.safeParse(req.body);
-            if (!validation.success) throw new BadRequestError('Validation Error', validation.error.format());
+            if (!validation.success)
+                throw new BadRequestError('Validation Error', validation.error.format());
             const result = await RefundService.reversePayment(
                 req.params.paymentId,
                 validation.data,
@@ -71,7 +71,8 @@ export class FinanceController {
     static async refundPayment(req, res, next) {
         try {
             const validation = refundPaymentSchema.safeParse(req.body);
-            if (!validation.success) throw new BadRequestError('Validation Error', validation.error.format());
+            if (!validation.success)
+                throw new BadRequestError('Validation Error', validation.error.format());
             const result = await RefundService.refundPayment(
                 req.params.paymentId,
                 validation.data,
@@ -87,12 +88,12 @@ export class FinanceController {
     static async applyCredit(req, res, next) {
         try {
             const validation = applyCreditSchema.safeParse(req.body);
-            if (!validation.success) throw new BadRequestError('Validation Error', validation.error.format());
-            const result = await RefundService.applyCreditToInvoice(
-                validation.data,
-                req.user,
-                { ipAddress: req.ip, userAgent: req.headers['user-agent'] },
-            );
+            if (!validation.success)
+                throw new BadRequestError('Validation Error', validation.error.format());
+            const result = await RefundService.applyCreditToInvoice(validation.data, req.user, {
+                ipAddress: req.ip,
+                userAgent: req.headers['user-agent'],
+            });
             return res.status(201).json({ success: true, data: result });
         } catch (error) {
             next(error);

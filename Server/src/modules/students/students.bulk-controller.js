@@ -10,13 +10,13 @@ export const uploadMiddleware = multer({
     fileFilter: (req, file, cb) => {
         const allowedMimes = [
             'text/csv',
-            'application/vnd.ms-excel',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         ];
-        if (allowedMimes.includes(file.mimetype) || file.originalname.match(/\.(csv|xlsx|xls)$/)) {
+        const hasAllowedExtension = /\.(csv|xlsx)$/i.test(file.originalname);
+        if (allowedMimes.includes(file.mimetype) && hasAllowedExtension) {
             cb(null, true);
         } else {
-            cb(new BadRequestError('Invalid file type. Only CSV and Excel (.xlsx, .xls) files are supported'));
+            cb(new BadRequestError('Invalid file type. Only CSV and XLSX files are supported'));
         }
     },
 }).single('file');
@@ -30,15 +30,21 @@ export async function handleBulkAdmission(req, res, next) {
         const ipAddress = req.ip || req.headers['x-forwarded-for'];
         const userAgent = req.headers['user-agent'];
 
-        const result = await BulkAdmissionService.processBulkAdmission(req.file.buffer, req.file.mimetype, req.user, {
-            ipAddress,
-            userAgent,
-        });
+        const result = await BulkAdmissionService.processBulkAdmission(
+            req.file.buffer,
+            req.file.mimetype,
+            req.user,
+            {
+                ipAddress,
+                userAgent,
+            },
+        );
 
         if (!result.success) {
             return res.status(422).json({
                 success: false,
-                message: 'Bulk processing failed due to validation errors. No records were imported.',
+                message:
+                    'Bulk processing failed due to validation errors. No records were imported.',
                 summary: {
                     totalRows: result.totalRows,
                     failedRows: result.failedRows,

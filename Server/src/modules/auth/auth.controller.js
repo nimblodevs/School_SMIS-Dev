@@ -1,5 +1,14 @@
 import { AuthService } from './auth.service.js';
-import { forgotPasswordSchema, googleLoginSchema, loginOtpSchema, loginSchema, resendLoginOtpSchema, resetPasswordSchema, changePasswordSchema, verifyOtpSchema } from './auth.validation.js';
+import {
+    forgotPasswordSchema,
+    googleLoginSchema,
+    loginOtpSchema,
+    loginSchema,
+    resendLoginOtpSchema,
+    resetPasswordSchema,
+    changePasswordSchema,
+    verifyOtpSchema,
+} from './auth.validation.js';
 import { BadRequestError } from '../../shared/errors/AppError.js';
 import { env } from '../../config/env.js';
 
@@ -57,13 +66,18 @@ export class AuthController {
     static async verifyLoginOtp(req, res, next) {
         try {
             const validation = loginOtpSchema.safeParse(req.body);
-            if (!validation.success) throw new BadRequestError('Validation error', validation.error.format());
+            if (!validation.success)
+                throw new BadRequestError('Validation error', validation.error.format());
             const result = await AuthService.verifyLoginOtp(validation.data, {
                 ipAddress: req.ip,
                 userAgent: req.headers['user-agent'],
             });
             setAuthCookies(res, result);
-            return res.json({ success: true, message: 'Login successful', data: { user: result.user } });
+            return res.json({
+                success: true,
+                message: 'Login successful',
+                data: { user: result.user },
+            });
         } catch (error) {
             next(error);
         }
@@ -72,7 +86,8 @@ export class AuthController {
     static async resendLoginOtp(req, res, next) {
         try {
             const validation = resendLoginOtpSchema.safeParse(req.body);
-            if (!validation.success) throw new BadRequestError('Validation error', validation.error.format());
+            if (!validation.success)
+                throw new BadRequestError('Validation error', validation.error.format());
             const result = await AuthService.resendLoginOtp(validation.data.userId, {
                 ipAddress: req.ip,
                 userAgent: req.headers['user-agent'],
@@ -116,7 +131,10 @@ export class AuthController {
         try {
             const refreshToken = req.cookies?.refreshToken;
             if (!refreshToken) throw new BadRequestError('Refresh token is required');
-            const result = await AuthService.refresh(refreshToken, { ipAddress: req.ip, userAgent: req.headers['user-agent'] });
+            const result = await AuthService.refresh(refreshToken, {
+                ipAddress: req.ip,
+                userAgent: req.headers['user-agent'],
+            });
             setAuthCookies(res, result);
             return res.json({ success: true, message: 'Session refreshed' });
         } catch (error) {
@@ -127,8 +145,12 @@ export class AuthController {
     static async googleLogin(req, res, next) {
         try {
             const validation = googleLoginSchema.safeParse(req.body);
-            if (!validation.success) throw new BadRequestError('Validation error', validation.error.format());
-            const result = await AuthService.googleLogin(validation.data.idToken, { ipAddress: req.ip, userAgent: req.headers['user-agent'] });
+            if (!validation.success)
+                throw new BadRequestError('Validation error', validation.error.format());
+            const result = await AuthService.googleLogin(validation.data.idToken, {
+                ipAddress: req.ip,
+                userAgent: req.headers['user-agent'],
+            });
             setAuthCookies(res, result);
             return res.json({ success: true, data: { user: result.user } });
         } catch (error) {
@@ -139,9 +161,16 @@ export class AuthController {
     static async forgotPassword(req, res, next) {
         try {
             const validation = forgotPasswordSchema.safeParse(req.body);
-            if (!validation.success) throw new BadRequestError('Validation error', validation.error.format());
-            await AuthService.forgotPassword(validation.data.email, { ipAddress: req.ip, userAgent: req.headers['user-agent'] });
-            return res.json({ success: true, message: 'If the account exists, a reset code has been sent.' });
+            if (!validation.success)
+                throw new BadRequestError('Validation error', validation.error.format());
+            await AuthService.forgotPassword(validation.data.email, {
+                ipAddress: req.ip,
+                userAgent: req.headers['user-agent'],
+            });
+            return res.json({
+                success: true,
+                message: 'If the account exists, a reset code has been sent.',
+            });
         } catch (error) {
             next(error);
         }
@@ -150,7 +179,8 @@ export class AuthController {
     static async verifyOtp(req, res, next) {
         try {
             const validation = verifyOtpSchema.safeParse(req.body);
-            if (!validation.success) throw new BadRequestError('Validation error', validation.error.format());
+            if (!validation.success)
+                throw new BadRequestError('Validation error', validation.error.format());
             await AuthService.verifyOtp(validation.data);
             return res.json({ success: true, message: 'OTP is valid' });
         } catch (error) {
@@ -161,8 +191,12 @@ export class AuthController {
     static async resetPassword(req, res, next) {
         try {
             const validation = resetPasswordSchema.safeParse(req.body);
-            if (!validation.success) throw new BadRequestError('Validation error', validation.error.format());
-            await AuthService.resetPassword(validation.data, { ipAddress: req.ip, userAgent: req.headers['user-agent'] });
+            if (!validation.success)
+                throw new BadRequestError('Validation error', validation.error.format());
+            await AuthService.resetPassword(validation.data, {
+                ipAddress: req.ip,
+                userAgent: req.headers['user-agent'],
+            });
             res.clearCookie('token', COOKIE_OPTIONS);
             res.clearCookie('refreshToken', REFRESH_COOKIE_OPTIONS);
             return res.json({ success: true, message: 'Password reset successfully' });
@@ -173,7 +207,10 @@ export class AuthController {
 
     static async impersonate(req, res, next) {
         try {
-            const result = await AuthService.startImpersonation(req.user, req.params.userId, { ipAddress: req.ip, userAgent: req.headers['user-agent'] });
+            const result = await AuthService.startImpersonation(req.user, req.params.userId, {
+                ipAddress: req.ip,
+                userAgent: req.headers['user-agent'],
+            });
             setAuthCookies(res, result);
             return res.json({ success: true, data: { user: result.user, isImpersonated: true } });
         } catch (error) {
@@ -184,7 +221,10 @@ export class AuthController {
     static async listUsers(req, res, next) {
         try {
             const page = Math.max(1, Number.parseInt(req.query.page ?? '1', 10));
-            const pageSize = Math.min(100, Math.max(1, Number.parseInt(req.query.pageSize ?? '50', 10)));
+            const pageSize = Math.min(
+                100,
+                Math.max(1, Number.parseInt(req.query.pageSize ?? '50', 10)),
+            );
             const result = await AuthService.listUsers({
                 schoolId: req.user.role === 'SUPER_ADMIN' ? req.query.schoolId : req.user.schoolId,
                 role: req.query.role,

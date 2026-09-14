@@ -21,22 +21,30 @@ function makePdf(title, lines) {
 
 export class DocumentService {
     static async processImage(fileUploadId, actor) {
-        const file = await prisma.fileUpload.findFirst({ where: { id: fileUploadId, schoolId: actor.schoolId } });
+        const file = await prisma.fileUpload.findFirst({
+            where: { id: fileUploadId, schoolId: actor.schoolId },
+        });
         if (!file) throw new NotFoundError('File upload not found');
         const source = await StorageService.downloadFile(file.storageKey, actor.schoolId);
-        const resized = await sharp(source).resize({ width: 1200, height: 1600, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer();
-        return StorageService.uploadGeneratedFile({
-            storageKey: `${actor.schoolId}/processed/${file.id}.jpg`,
-            originalName: `${file.originalName.replace(/\.[^.]+$/, '')}.jpg`,
-            mimeType: 'image/jpeg',
-            body: resized,
-            relatedType: file.relatedType,
-            relatedId: file.relatedId,
-        }, actor);
+        const resized = await sharp(source)
+            .resize({ width: 1200, height: 1600, fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: 82 })
+            .toBuffer();
+        return StorageService.uploadGeneratedFile(
+            {
+                storageKey: `${actor.schoolId}/processed/${file.id}.jpg`,
+                originalName: `${file.originalName.replace(/\.[^.]+$/, '')}.jpg`,
+                mimeType: 'image/jpeg',
+                body: resized,
+                relatedType: file.relatedType,
+                relatedId: file.relatedId,
+            },
+            actor,
+        );
     }
 
     static async generateReportCardPdf({ termId, studentId }, actor) {
-        const report = await ReportCardService.generateTermReports(termId, actor, studentId);
+        const report = await ReportCardService.generateTermReports(termId, actor, { studentId });
         const item = report.reports[0];
         if (!item) throw new NotFoundError('Report card data not found');
         const lines = [
@@ -46,25 +54,44 @@ export class DocumentService {
             `Class rank: ${item.classRank || 'Not ranked'}/${report.classSize}`,
             `Overall average: ${item.overallAverage?.toFixed(2) || 'N/A'}%`,
             '',
-            ...item.subjects.map((subject) => `${subject.subject.name}: ${subject.average?.toFixed(2) || 'N/A'}% (SD ${subject.standardDeviation.toFixed(2)})`),
+            ...item.subjects.map(
+                (subject) =>
+                    `${subject.subject.name}: ${subject.average?.toFixed(2) || 'N/A'}% ` +
+                    `(SD ${subject.standardDeviation?.toFixed(2) || 'N/A'})`,
+            ),
             '',
-            ...item.cbc.map((area) => `CBC ${area.learningArea.name}: level ${area.averageLevel.toFixed(2)} across ${area.historyCount} historical assessments`),
+            ...item.cbc.map(
+                (area) =>
+                    `CBC ${area.learningArea.name}: ${
+                        Object.entries(area.distribution)
+                            .filter(([, count]) => count > 0)
+                            .map(([level, count]) => `${level}=${count}`)
+                            .join(', ') || 'No assessments'
+                    } (${area.totalAssessments} total)`,
+            ),
         ];
         const body = await makePdf('School SMIS Term Report Card', lines);
-        return StorageService.uploadGeneratedFile({
-            storageKey: `${actor.schoolId}/reports/${termId}/${studentId}-${randomUUID()}.pdf`,
-            originalName: `${item.student.admissionNo}-${report.term.name}-report-card.pdf`,
-            mimeType: 'application/pdf',
-            body,
-            relatedType: 'REPORT_CARD',
-            relatedId: studentId,
-        }, actor);
+        return StorageService.uploadGeneratedFile(
+            {
+                storageKey: `${actor.schoolId}/reports/${termId}/${studentId}-${randomUUID()}.pdf`,
+                originalName: `${item.student.admissionNo}-${report.term.name}-report-card.pdf`,
+                mimeType: 'application/pdf',
+                body,
+                relatedType: 'REPORT_CARD',
+                relatedId: studentId,
+            },
+            actor,
+        );
     }
 
     static async generatePayslipPdf(payslipId, actor) {
         const payslip = await prisma.payslip.findFirst({
             where: { id: payslipId, schoolId: actor.schoolId },
-            include: { payrollRun: true, teacher: { include: { user: true } }, staff: { include: { user: true } } },
+            include: {
+                payrollRun: true,
+                teacher: { include: { user: true } },
+                staff: { include: { user: true } },
+            },
         });
         if (!payslip) throw new NotFoundError('Payslip not found');
         const profile = payslip.teacher || payslip.staff;
@@ -77,13 +104,16 @@ export class DocumentService {
             `Deductions: ${payslip.totalDeductions}`,
             `Net pay: ${payslip.netPay}`,
         ]);
-        return StorageService.uploadGeneratedFile({
-            storageKey: `${actor.schoolId}/payslips/${payslip.payrollRun.month}/${payslip.employeeKey}-${randomUUID()}.pdf`,
-            originalName: `${payslip.employeeKey}-${payslip.payrollRun.month}-payslip.pdf`,
-            mimeType: 'application/pdf',
-            body,
-            relatedType: 'PAYSLIP',
-            relatedId: payslip.id,
-        }, actor);
+        return StorageService.uploadGeneratedFile(
+            {
+                storageKey: `${actor.schoolId}/payslips/${payslip.payrollRun.month}/${payslip.employeeKey}-${randomUUID()}.pdf`,
+                originalName: `${payslip.employeeKey}-${payslip.payrollRun.month}-payslip.pdf`,
+                mimeType: 'application/pdf',
+                body,
+                relatedType: 'PAYSLIP',
+                relatedId: payslip.id,
+            },
+            actor,
+        );
     }
 }

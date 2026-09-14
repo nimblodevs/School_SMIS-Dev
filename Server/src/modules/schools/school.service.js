@@ -47,7 +47,8 @@ export class SchoolService {
                     select: { nextSchoolCode: true },
                 });
                 const schoolCodeNumber = sequence.nextSchoolCode - 1;
-                if (schoolCodeNumber > 99999) throw new BadRequestError('The five-digit school code range is exhausted');
+                if (schoolCodeNumber > 99999)
+                    throw new BadRequestError('The five-digit school code range is exhausted');
                 return transaction.school.create({
                     data: {
                         name: input.name.toUpperCase(),
@@ -79,7 +80,8 @@ export class SchoolService {
             });
             return school;
         } catch (error) {
-            if (isUniqueConstraintError(error)) throw new BadRequestError('School name identifiers or code already exist');
+            if (isUniqueConstraintError(error))
+                throw new BadRequestError('School name identifiers or code already exist');
             throw error;
         }
     }
@@ -87,16 +89,24 @@ export class SchoolService {
     static async list({ page = 1, pageSize = 50, search, isActive } = {}) {
         const where = {
             ...(typeof isActive === 'boolean' ? { isActive } : {}),
-            ...(search ? {
-                OR: [
-                    { name: { contains: search, mode: 'insensitive' } },
-                    { slug: { contains: search, mode: 'insensitive' } },
-                    { schoolCode: { contains: search } },
-                ],
-            } : {}),
+            ...(search
+                ? {
+                      OR: [
+                          { name: { contains: search, mode: 'insensitive' } },
+                          { slug: { contains: search, mode: 'insensitive' } },
+                          { schoolCode: { contains: search } },
+                      ],
+                  }
+                : {}),
         };
         const [schools, total] = await runTransaction([
-            prisma.school.findMany({ where, select: schoolSelect, orderBy: { name: 'asc' }, skip: (page - 1) * pageSize, take: pageSize }),
+            prisma.school.findMany({
+                where,
+                select: schoolSelect,
+                orderBy: { name: 'asc' },
+                skip: (page - 1) * pageSize,
+                take: pageSize,
+            }),
             prisma.school.count({ where }),
         ]);
         return { schools, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
@@ -106,7 +116,10 @@ export class SchoolService {
         if (actor.role !== 'SUPER_ADMIN' && actor.schoolId !== schoolId) {
             throw new ForbiddenError('You do not have access to this school');
         }
-        const school = await prisma.school.findUnique({ where: { id: schoolId }, select: schoolSelect });
+        const school = await prisma.school.findUnique({
+            where: { id: schoolId },
+            select: schoolSelect,
+        });
         if (!school) throw new NotFoundError('School not found');
         return school;
     }
@@ -115,14 +128,38 @@ export class SchoolService {
         if (actor.role !== 'SUPER_ADMIN' && actor.schoolId !== schoolId) {
             throw new ForbiddenError('You do not have access to this school');
         }
-        const normalizedInput = { ...input, ...(input.name ? { name: input.name.toUpperCase() } : {}) };
-        const editableProfileFields = ['motto', 'vision', 'mission', 'address', 'city', 'county', 'postalCode', 'website'];
-        const data = actor.role === 'SUPER_ADMIN'
-            ? normalizedInput
-            : Object.fromEntries(Object.entries(normalizedInput).filter(([field]) => editableProfileFields.includes(field)));
-        if (Object.keys(data).length === 0) throw new ForbiddenError('Only super admins can change the school name, email, phone, slug, or active status');
+        const normalizedInput = {
+            ...input,
+            ...(input.name ? { name: input.name.toUpperCase() } : {}),
+        };
+        const editableProfileFields = [
+            'motto',
+            'vision',
+            'mission',
+            'address',
+            'city',
+            'county',
+            'postalCode',
+            'website',
+        ];
+        const data =
+            actor.role === 'SUPER_ADMIN'
+                ? normalizedInput
+                : Object.fromEntries(
+                      Object.entries(normalizedInput).filter(([field]) =>
+                          editableProfileFields.includes(field),
+                      ),
+                  );
+        if (Object.keys(data).length === 0)
+            throw new ForbiddenError(
+                'Only super admins can change the school name, email, phone, slug, or active status',
+            );
         try {
-            const school = await prisma.school.update({ where: { id: schoolId }, data, select: schoolSelect });
+            const school = await prisma.school.update({
+                where: { id: schoolId },
+                data,
+                select: schoolSelect,
+            });
             await recordAudit({
                 action: 'UPDATE',
                 actorId: actor.id,
@@ -136,7 +173,8 @@ export class SchoolService {
             return school;
         } catch (error) {
             if (error?.code === 'P2025') throw new NotFoundError('School not found');
-            if (isUniqueConstraintError(error)) throw new BadRequestError('School slug or payment identifier already exists');
+            if (isUniqueConstraintError(error))
+                throw new BadRequestError('School slug or payment identifier already exists');
             throw error;
         }
     }
@@ -147,20 +185,42 @@ export class SchoolService {
             where: { schoolId },
             update: {},
             create: { schoolId },
-            select: { schoolId: true, mpesaShortcode: true, mpesaEnabled: true, createdAt: true, updatedAt: true },
+            select: {
+                schoolId: true,
+                mpesaShortcode: true,
+                mpesaEnabled: true,
+                createdAt: true,
+                updatedAt: true,
+            },
         });
     }
 
     static async updateSettings(schoolId, input, actor, { ipAddress, userAgent } = {}) {
         await this.getById(schoolId, actor);
-        if (actor.role !== 'SUPER_ADMIN' && actor.schoolId !== schoolId) throw new ForbiddenError('You do not have access to this school');
+        if (actor.role !== 'SUPER_ADMIN' && actor.schoolId !== schoolId)
+            throw new ForbiddenError('You do not have access to this school');
         const settings = await prisma.schoolSettings.upsert({
             where: { schoolId },
             update: input,
             create: { schoolId, ...input },
-            select: { schoolId: true, mpesaShortcode: true, mpesaEnabled: true, createdAt: true, updatedAt: true },
+            select: {
+                schoolId: true,
+                mpesaShortcode: true,
+                mpesaEnabled: true,
+                createdAt: true,
+                updatedAt: true,
+            },
         });
-        await recordAudit({ action: 'UPDATE', actorId: actor.id, schoolId, entityType: 'SchoolSettings', entityId: schoolId, metadata: { fields: Object.keys(input) }, ipAddress, userAgent });
+        await recordAudit({
+            action: 'UPDATE',
+            actorId: actor.id,
+            schoolId,
+            entityType: 'SchoolSettings',
+            entityId: schoolId,
+            metadata: { fields: Object.keys(input) },
+            ipAddress,
+            userAgent,
+        });
         return settings;
     }
 }

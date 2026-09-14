@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const RelationEnum = z.enum(['MOTHER', 'FATHER', 'GUARDIAN']);
 
-export const createParentSchema = z.object({
+const parentSchema = z.object({
     firstName: z.string().min(1, 'First name is required'),
     middleName: z.string().optional(),
     lastName: z.string().min(1, 'Last name is required'),
@@ -11,13 +11,25 @@ export const createParentSchema = z.object({
     email: z.string().email('Invalid email address').optional().or(z.literal('')),
     relation: RelationEnum.default('GUARDIAN'),
     createPortalAccount: z.boolean().default(false),
-}).superRefine((value, context) => {
+});
+
+export const createParentSchema = parentSchema.superRefine((value, context) => {
     if (value.createPortalAccount && !value.email) {
-        context.addIssue({ code: z.ZodIssueCode.custom, path: ['email'], message: 'Email is required for a portal account' });
+        context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['email'],
+            message: 'Email is required for a portal account',
+        });
     }
 });
 
-export const updateParentSchema = createParentSchema.partial();
+export const updateParentSchema = parentSchema
+    .omit({ createPortalAccount: true })
+    .partial()
+    .extend({ relation: RelationEnum.optional() })
+    .refine((value) => Object.keys(value).length > 0, {
+        message: 'At least one field is required',
+    });
 
 export const linkStudentSchema = z.object({
     studentId: z.string().uuid('Invalid Student ID'),

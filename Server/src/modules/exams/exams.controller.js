@@ -10,11 +10,10 @@ export class ExamsController {
                 throw new BadRequestError('Validation Error', validation.error.format());
             }
 
-            const exam = await ExamsService.createExam(
-                validation.data,
-                req.user,
-                { ipAddress: req.ip, userAgent: req.headers['user-agent'] }
-            );
+            const exam = await ExamsService.createExam(validation.data, req.user, {
+                ipAddress: req.ip,
+                userAgent: req.headers['user-agent'],
+            });
 
             return res.status(201).json({
                 success: true,
@@ -38,7 +37,7 @@ export class ExamsController {
                 examId,
                 validation.data.results,
                 req.user,
-                { ipAddress: req.ip, userAgent: req.headers['user-agent'] }
+                { ipAddress: req.ip, userAgent: req.headers['user-agent'] },
             );
 
             return res.status(200).json({

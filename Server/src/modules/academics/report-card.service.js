@@ -1,5 +1,5 @@
 import { prisma } from '../../config/prisma.js';
-import { NotFoundError, ForbiddenError, BadRequestError } from '../../shared/errors/AppError.js';
+import { NotFoundError, ForbiddenError } from '../../shared/errors/AppError.js';
 
 // Ordinal levels. We do NOT average these; we report distributions.
 const CBC_LEVELS = [
@@ -83,8 +83,8 @@ export class ReportCardService {
                     ? [studentId]
                     : null
                 : studentId
-                    ? [studentId]
-                    : visibleStudentIds;
+                  ? [studentId]
+                  : visibleStudentIds;
 
         // ---- Fetch enrollments ----
         const enrollmentWhere = {
@@ -181,9 +181,7 @@ export class ReportCardService {
                 assessmentCount: bucket.scores.length,
             }));
 
-            const subjectAverages = subjects
-                .map((s) => s.average)
-                .filter((v) => v !== null);
+            const subjectAverages = subjects.map((s) => s.average).filter((v) => v !== null);
 
             // CBC: report distribution, not a meaningless average of ordinals
             const cbcByLearningArea = new Map();
@@ -218,9 +216,7 @@ export class ReportCardService {
 
         // ---- Ranking ----
         const groupKey = (report) =>
-            rankBy === 'CLASS_LEVEL'
-                ? report.enrollment.classLevel
-                : report.enrollment.streamId;
+            rankBy === 'CLASS_LEVEL' ? report.enrollment.classLevel : report.enrollment.streamId;
 
         const groups = new Map();
         for (const report of reports) {
@@ -254,9 +250,7 @@ export class ReportCardService {
         }
 
         // ---- Optional student filter for output ----
-        const output = studentId
-            ? reports.filter((r) => r.student.id === studentId)
-            : reports;
+        const output = studentId ? reports.filter((r) => r.student.id === studentId) : reports;
 
         return {
             term: { id: term.id, name: term.name, academicYear: term.academicYear.name },

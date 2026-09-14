@@ -1,9 +1,27 @@
 import { prisma, runTransaction } from '../../config/prisma.js';
 import { nextAdmissionNo } from '../../shared/sequences.js';
 import { recordAudit } from '../../shared/audit.js';
-import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../../shared/errors/AppError.js';
+import { userHasModuleAccess } from '../../api/middlewares/roleMiddleware.js';
 
-const studentSelect = {
+const enrollmentSelect = {
+    where: { status: 'ACTIVE' },
+    take: 1,
+    select: {
+        id: true,
+        status: true,
+        academicYear: { select: { id: true, name: true } },
+        stream: {
+            select: {
+                id: true,
+                name: true,
+                classLevel: { select: { id: true, name: true, curriculum: true } },
+            },
+        },
+    },
+};
+
+const studentSummarySelect = {
     id: true,
     admissionNo: true,
     firstName: true,
@@ -11,30 +29,33 @@ const studentSelect = {
     lastName: true,
     gender: true,
     dateOfBirth: true,
-    nationalIdNumber: true,
-    birthCertificateNumber: true,
-    passportNumber: true,
     admissionDate: true,
     isActive: true,
     schoolId: true,
     userId: true,
     createdAt: true,
-    enrollments: {
-        where: { status: 'ACTIVE' },
-        take: 1,
+    enrollments: enrollmentSelect,
+    parents: {
         select: {
-            id: true,
-            status: true,
-            academicYear: { select: { id: true, name: true } },
-            stream: {
+            parent: {
                 select: {
                     id: true,
-                    name: true,
-                    classLevel: { select: { id: true, name: true, curriculum: true } },
+                    firstName: true,
+                    middleName: true,
+                    lastName: true,
+                    phone: true,
+                    relation: true,
                 },
             },
         },
     },
+};
+
+const studentSelect = {
+    ...studentSummarySelect,
+    nationalIdNumber: true,
+    birthCertificateNumber: true,
+    passportNumber: true,
     parents: {
         select: {
             parent: {
@@ -53,6 +74,12 @@ const studentSelect = {
 };
 
 export class StudentService {
+    static assertCanManage(actor) {
+        if (!userHasModuleAccess(actor, 'STUDENTS')) {
+            throw new ForbiddenError('Access denied to the STUDENTS module');
+        }
+    }
+
     /**
      * Admits a student, assigns initial enrollment, and links parents in a transaction.
      */
@@ -74,10 +101,17 @@ export class StudentService {
             const admissionNo = await nextAdmissionNo(tx, schoolId, school.schoolCode);
 
             const [stream, academicYear] = await Promise.all([
-                tx.stream.findFirst({ where: { id: input.streamId, schoolId }, select: { id: true } }),
-                tx.academicYear.findFirst({ where: { id: input.academicYearId, schoolId }, select: { id: true } }),
+                tx.stream.findFirst({
+                    where: { id: input.streamId, schoolId },
+                    select: { id: true },
+                }),
+                tx.academicYear.findFirst({
+                    where: { id: input.academicYearId, schoolId },
+                    select: { id: true },
+                }),
             ]);
-            if (!stream || !academicYear) throw new BadRequestError('Initial placement does not belong to this school');
+            if (!stream || !academicYear)
+                throw new BadRequestError('Initial placement does not belong to this school');
 
             // 2. Create Student Record
             const newStudent = await tx.student.create({
@@ -109,8 +143,12 @@ export class StudentService {
             // 4. Link Parents/Guardians if provided
             if (input.parents && input.parents.length > 0) {
                 const parentIds = [...new Set(input.parents.map((parent) => parent.parentId))];
-                const parents = await tx.parent.findMany({ where: { id: { in: parentIds }, schoolId }, select: { id: true } });
-                if (parents.length !== parentIds.length) throw new BadRequestError('One or more parents do not belong to this school');
+                const parents = await tx.parent.findMany({
+                    where: { id: { in: parentIds }, schoolId },
+                    select: { id: true },
+                });
+                if (parents.length !== parentIds.length)
+                    throw new BadRequestError('One or more parents do not belong to this school');
                 await tx.studentParent.createMany({
                     data: input.parents.map((p) => ({
                         studentId: newStudent.id,
@@ -121,7 +159,7 @@ export class StudentService {
 
             return tx.student.findUnique({
                 where: { id: newStudent.id },
-                select: studentSelect,
+                select: studentSummarySelect,
             });
         });
 
@@ -131,7 +169,10 @@ export class StudentService {
             schoolId,
             entityType: 'Student',
             entityId: student.id,
-            metadata: { admissionNo: student.admissionNo, name: `${student.firstName} ${student.lastName}` },
+            metadata: {
+                admissionNo: student.admissionNo,
+                name: `${student.firstName} ${student.lastName}`,
+            },
             ipAddress,
             userAgent,
         });
@@ -149,14 +190,14 @@ export class StudentService {
             ...(streamId ? { enrollments: { some: { streamId, status: 'ACTIVE' } } } : {}),
             ...(search
                 ? {
-                    OR: [
-                        { firstName: { contains: search, mode: 'insensitive' } },
-                        { lastName: { contains: search, mode: 'insensitive' } },
-                        { admissionNo: { contains: search, mode: 'insensitive' } },
-                        { nationalIdNumber: { contains: search } },
-                        { birthCertificateNumber: { contains: search } },
-                    ],
-                }
+                      OR: [
+                          { firstName: { contains: search, mode: 'insensitive' } },
+                          { lastName: { contains: search, mode: 'insensitive' } },
+                          { admissionNo: { contains: search, mode: 'insensitive' } },
+                          { nationalIdNumber: { contains: search } },
+                          { birthCertificateNumber: { contains: search } },
+                      ],
+                  }
                 : {}),
         };
 
@@ -183,13 +224,27 @@ export class StudentService {
     /**
      * Fetch single student record.
      */
-    static async getById(studentId, schoolId) {
+    static async getById(studentId, actor) {
+        if (!actor) throw new ForbiddenError('User context is required');
+
+        const where = { id: studentId };
+        if (actor.role !== 'SUPER_ADMIN') {
+            if (!actor.schoolId) throw new ForbiddenError('User is not associated with a school');
+            where.schoolId = actor.schoolId;
+        }
+
+        if (actor.role === 'PARENT') {
+            where.parents = { some: { parent: { userId: actor.id } } };
+        } else if (actor.role === 'STUDENT') {
+            where.userId = actor.id;
+        } else if (!userHasModuleAccess(actor, 'STUDENTS')) {
+            throw new ForbiddenError('Access denied to the STUDENTS module');
+        }
+
+        const canViewIdentityDocuments = ['ADMIN', 'SUPER_ADMIN', 'STAFF'].includes(actor.role);
         const student = await prisma.student.findFirst({
-            where: {
-                id: studentId,
-                ...(schoolId ? { schoolId } : {}),
-            },
-            select: studentSelect,
+            where,
+            select: canViewIdentityDocuments ? studentSelect : studentSummarySelect,
         });
 
         if (!student) {
@@ -199,11 +254,29 @@ export class StudentService {
         return student;
     }
 
+    static async assertInSchool(studentId, actor) {
+        if (!actor) throw new ForbiddenError('User context is required');
+
+        const where = { id: studentId };
+        if (actor.role !== 'SUPER_ADMIN') {
+            if (!actor.schoolId) throw new ForbiddenError('User is not associated with a school');
+            where.schoolId = actor.schoolId;
+        }
+
+        const student = await prisma.student.findFirst({
+            where,
+            select: { id: true, schoolId: true },
+        });
+        if (!student) throw new NotFoundError('Student profile not found');
+        return student;
+    }
+
     /**
      * Update student details.
      */
     static async update(studentId, input, actor, { ipAddress, userAgent } = {}) {
-        await this.getById(studentId, actor.schoolId);
+        this.assertCanManage(actor);
+        const student = await this.assertInSchool(studentId, actor);
 
         const updateData = { ...input };
         if (input.dateOfBirth) {
@@ -222,7 +295,7 @@ export class StudentService {
         await recordAudit({
             action: 'UPDATE',
             actorId: actor.id,
-            schoolId: actor.schoolId,
+            schoolId: student.schoolId,
             entityType: 'Student',
             entityId: studentId,
             metadata: { fields: Object.keys(input) },
@@ -237,7 +310,14 @@ export class StudentService {
      * Link a parent to a student using StudentParent join table.
      */
     static async linkParent(studentId, parentId, actor) {
-        await this.getById(studentId, actor.schoolId);
+        this.assertCanManage(actor);
+        const student = await this.assertInSchool(studentId, actor);
+
+        const parent = await prisma.parent.findFirst({
+            where: { id: parentId, schoolId: student.schoolId },
+            select: { id: true },
+        });
+        if (!parent) throw new NotFoundError('Parent profile not found');
 
         const existingLink = await prisma.studentParent.findUnique({
             where: { studentId_parentId: { studentId, parentId } },
@@ -257,7 +337,8 @@ export class StudentService {
      * Remove link between parent and student.
      */
     static async unlinkParent(studentId, parentId, actor) {
-        await this.getById(studentId, actor.schoolId);
+        this.assertCanManage(actor);
+        await this.assertInSchool(studentId, actor);
 
         try {
             await prisma.studentParent.delete({

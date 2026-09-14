@@ -1,13 +1,13 @@
-import { prisma } from "../config/prisma.js";
-import { logger } from "../config/logger.js";
-import { getOrCreateTraceId, recordAuditTrace } from "../config/tracing.js";
+import { prisma } from '../config/prisma.js';
+import { logger } from '../config/logger.js';
+import { getOrCreateTraceId, recordAuditTrace } from '../config/tracing.js';
 
 export async function recordAudit(entry, tx = prisma) {
     const {
         action,
         actorId = null,
         schoolId = null,
-        entityType = "AUTH",
+        entityType = 'AUTH',
         entityId = null,
         ipAddress = null,
         userAgent = null,
@@ -16,11 +16,11 @@ export async function recordAudit(entry, tx = prisma) {
 
     try {
         const traceId = getOrCreateTraceId();
-        recordAuditTrace("audit.event", {
-            "audit.action": action,
-            "audit.entity_type": entityType,
-            "audit.entity_id": entityId || "",
-            "tenant.school_id": schoolId || "",
+        recordAuditTrace('audit.event', {
+            'audit.action': action,
+            'audit.entity_type': entityType,
+            'audit.entity_id': entityId || '',
+            'tenant.school_id': schoolId || '',
         });
         logger.info(
             {
@@ -34,7 +34,7 @@ export async function recordAudit(entry, tx = prisma) {
                     metadata,
                 },
             },
-            "Audit event",
+            'Audit event',
         );
 
         return await tx.auditLog.create({
@@ -53,7 +53,7 @@ export async function recordAudit(entry, tx = prisma) {
     } catch (error) {
         logger.error(
             { err: error, action, actorId, entityType, entityId },
-            "Audit event could not be persisted",
+            'Audit event could not be persisted',
         );
         throw error;
     }

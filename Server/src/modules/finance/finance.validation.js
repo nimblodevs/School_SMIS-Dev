@@ -13,10 +13,15 @@ export const recordPaymentSchema = z.object({
     method: z.enum(['MPESA', 'CASH', 'CHEQUE', 'BANK_DEPOSIT', 'BANK_TRANSFER', 'CARD']),
     reference: z.string().optional(),
     idempotencyKey: z.string().trim().min(1).max(200).optional(),
-    allocations: z.array(z.object({
-        invoiceId: z.string().uuid(),
-        amount: z.number().positive(),
-    })).max(100).optional(),
+    allocations: z
+        .array(
+            z.object({
+                invoiceId: z.string().uuid(),
+                amount: z.number().positive(),
+            }),
+        )
+        .max(100)
+        .optional(),
     checkoutRequestId: z.string().trim().max(200).optional(),
     mpesaReceipt: z.string().trim().max(200).optional(),
 });

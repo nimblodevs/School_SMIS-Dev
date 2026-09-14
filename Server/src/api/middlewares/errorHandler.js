@@ -1,11 +1,15 @@
-import { AppError, InternalServerError } from '../../shared/errors/AppError.js';
+import { AppError } from '../../shared/errors/AppError.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 import { Prisma } from '@prisma/client';
 
 const PRISMA_MAP = {
     P2002: { status: 409, code: 'CONFLICT', message: 'A record with these values already exists' },
-    P2003: { status: 409, code: 'CONFLICT', message: 'Referenced record does not exist or is still in use' },
+    P2003: {
+        status: 409,
+        code: 'CONFLICT',
+        message: 'Referenced record does not exist or is still in use',
+    },
     P2014: { status: 409, code: 'CONFLICT', message: 'The change would break a required relation' },
     P2025: { status: 404, code: 'NOT_FOUND', message: 'Record not found' },
 };

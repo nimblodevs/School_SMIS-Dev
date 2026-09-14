@@ -11,7 +11,9 @@ import { requestLogger } from './config/logger.js';
 import { getOrCreateTraceId, runWithTraceId } from './config/tracing.js';
 
 const app = express();
-const allowedOrigins = env.CLIENT_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean);
+const allowedOrigins = env.CLIENT_ORIGINS.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 
 app.set('trust proxy', env.TRUST_PROXY);
 app.disable('x-powered-by');
@@ -24,7 +26,7 @@ app.use(
             return callback(new Error('Origin is not allowed by CORS'));
         },
         credentials: true, // Required for HTTP-Only cookies to pass cross-origin
-    })
+    }),
 );
 
 // Standard Middlewares

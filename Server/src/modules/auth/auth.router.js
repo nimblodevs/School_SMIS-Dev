@@ -6,11 +6,11 @@ import { authorizeRoles } from '../../api/middlewares/roleMiddleware.js';
 
 const router = Router();
 const loginLimiter = rateLimit({
-	windowMs: 15 * 60 * 1000,
-	limit: 10,
-	standardHeaders: 'draft-8',
-	legacyHeaders: false,
-	message: { success: false, message: 'Too many login attempts. Try again later.' },
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    message: { success: false, message: 'Too many login attempts. Try again later.' },
 });
 
 // Public routes
@@ -27,7 +27,17 @@ router.post('/refresh', AuthController.refresh);
 router.post('/logout', authenticate, AuthController.logout);
 router.get('/me', authenticate, AuthController.getMe);
 router.post('/change-password', authenticate, AuthController.changePassword);
-router.post('/impersonate/:userId', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), AuthController.impersonate);
-router.get('/users', authenticate, authorizeRoles('ADMIN', 'SUPER_ADMIN'), AuthController.listUsers);
+router.post(
+    '/impersonate/:userId',
+    authenticate,
+    authorizeRoles('ADMIN', 'SUPER_ADMIN'),
+    AuthController.impersonate,
+);
+router.get(
+    '/users',
+    authenticate,
+    authorizeRoles('ADMIN', 'SUPER_ADMIN'),
+    AuthController.listUsers,
+);
 
 export default router;

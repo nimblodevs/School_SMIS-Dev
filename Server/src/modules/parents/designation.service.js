@@ -6,7 +6,13 @@ export class ParentDesignationService {
     /**
      * Updates emergency contact and financial responsibility designations for a student-parent link.
      */
-    static async updateDesignation(studentId, parentId, designations, actor, { ipAddress, userAgent } = {}) {
+    static async updateDesignation(
+        studentId,
+        parentId,
+        designations,
+        actor,
+        { ipAddress, userAgent } = {},
+    ) {
         const schoolId = actor.schoolId;
 
         // Verify linkage existence within school context

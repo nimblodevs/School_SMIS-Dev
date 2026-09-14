@@ -21,34 +21,39 @@ School SMIS is a backend API for managing school operations, including academic 
 ## Setup
 
 1. Install dependencies:
-   ```bash
-   npm install
-   ```
+
+    ```bash
+    npm install
+    ```
 
 2. Create a `.env` file and add your PostgreSQL connection string:
-   ```env
-   DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE?schema=public"
-   ```
+
+    ```env
+    DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE?schema=public"
+    ```
 
 3. Generate the Prisma client:
-   ```bash
-   npm run prisma:generate
-   ```
+
+    ```bash
+    npm run prisma:generate
+    ```
 
 4. Validate the schema:
-   ```bash
-   npm run prisma:validate
-   ```
+
+    ```bash
+    npm run prisma:validate
+    ```
 
 5. Run database migrations:
-   ```bash
-   npm run prisma:migrate
-   ```
+
+    ```bash
+    npm run prisma:migrate
+    ```
 
 6. Start the server:
-   ```bash
-   npm run dev
-   ```
+    ```bash
+    npm run dev
+    ```
 
 ## Useful Scripts
 

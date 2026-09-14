@@ -1,11 +1,7 @@
 // src/modules/finance/refund.service.js
 import { Prisma } from '@prisma/client';
 import { runTransaction } from '../../config/prisma.js';
-import {
-    BadRequestError,
-    NotFoundError,
-    ConflictError,
-} from '../../shared/errors/AppError.js';
+import { BadRequestError, NotFoundError, ConflictError } from '../../shared/errors/AppError.js';
 import { recordAudit } from '../../shared/audit.js';
 import { nextCreditNoteNo } from '../../shared/sequences.js';
 
@@ -29,23 +25,20 @@ const ACCOUNTS = {
 
 function accountForMethod(method) {
     switch (method) {
-        case 'MPESA': return ACCOUNTS.MPESA;
-        case 'CASH': return ACCOUNTS.CASH;
+        case 'MPESA':
+            return ACCOUNTS.MPESA;
+        case 'CASH':
+            return ACCOUNTS.CASH;
         case 'BANK_DEPOSIT':
-        case 'BANK_TRANSFER': return ACCOUNTS.BANK;
-        case 'CHEQUE': return ACCOUNTS.CHEQUES;
-        case 'CARD': return ACCOUNTS.CARD;
-        default: throw new BadRequestError(`Unknown payment method: ${method}`);
+        case 'BANK_TRANSFER':
+            return ACCOUNTS.BANK;
+        case 'CHEQUE':
+            return ACCOUNTS.CHEQUES;
+        case 'CARD':
+            return ACCOUNTS.CARD;
+        default:
+            throw new BadRequestError(`Unknown payment method: ${method}`);
     }
-}
-
-function accountTypeForCode(code) {
-    if (code.startsWith('1')) return 'ASSET';
-    if (code.startsWith('2')) return 'LIABILITY';
-    if (code.startsWith('3')) return 'EQUITY';
-    if (code.startsWith('4')) return 'REVENUE';
-    if (code.startsWith('5')) return 'EXPENSE';
-    return 'ASSET';
 }
 
 export class RefundService {
@@ -67,7 +60,12 @@ export class RefundService {
      *
      * Idempotent on idempotencyKey.
      */
-    static async reversePayment(paymentId, { reason, notes, idempotencyKey } = {}, actor, ctx = {}) {
+    static async reversePayment(
+        paymentId,
+        { reason, notes, idempotencyKey } = {},
+        actor,
+        ctx = {},
+    ) {
         const schoolId = actor.schoolId;
         if (!reason) throw new BadRequestError('reason is required');
 
@@ -102,9 +100,7 @@ export class RefundService {
                 throw new ConflictError('Payment already reversed');
             }
             if (payment.status !== 'COMPLETED') {
-                throw new BadRequestError(
-                    `Cannot reverse a payment with status ${payment.status}`,
-                );
+                throw new BadRequestError(`Cannot reverse a payment with status ${payment.status}`);
             }
 
             const amount = D(payment.amount);
@@ -547,10 +543,10 @@ export class RefundService {
 
     /**
      * Student's total credit balance:
-    *   SUM(credit_notes.amount where status in ISSUED, PARTIALLY_APPLIED)
-    *   - SUM(credit_note_applications.amount where status = ACTIVE)
-    * Credit-note applications are the single source of truth for consumed credit,
-    * including refunds, which are represented by applications without an invoice.
+     *   SUM(credit_notes.amount where status in ISSUED, PARTIALLY_APPLIED)
+     *   - SUM(credit_note_applications.amount where status = ACTIVE)
+     * Credit-note applications are the single source of truth for consumed credit,
+     * including refunds, which are represented by applications without an invoice.
      *
      * Pass `{ lock: true }` to serialize concurrent credit consumption
      * (locks the student row).
@@ -654,16 +650,10 @@ export class RefundService {
     /**
      * Writes a balanced DEBIT/CREDIT pair to the ledger.
      */
-    static async _postLedgerPair(tx, {
-        schoolId,
-        debitAccount,
-        creditAccount,
-        amount,
-        referenceType,
-        referenceId,
-        narration,
-        postedById,
-    }) {
+    static async _postLedgerPair(
+        tx,
+        { schoolId, debitAccount, creditAccount, amount, referenceType, referenceId, narration },
+    ) {
         const entryDate = new Date();
         await tx.ledgerEntry.createMany({
             data: [

@@ -5,7 +5,14 @@ const ROLE_DEFAULT_MODULES = {
     TEACHER: ['STUDENTS', 'ATTENDANCE', 'TIMETABLE', 'EXAMS', 'CBC', 'REPORTS'],
     BURSAR: ['FEES', 'REPORTS', 'FINANCE'],
     MANAGER: [
-        'STUDENTS', 'ATTENDANCE', 'TIMETABLE', 'EXAMS', 'CBC', 'FEES', 'REPORTS', 'FINANCE',
+        'STUDENTS',
+        'ATTENDANCE',
+        'TIMETABLE',
+        'EXAMS',
+        'CBC',
+        'FEES',
+        'REPORTS',
+        'FINANCE',
         // No PAYROLL — MANAGER is explicitly excluded
     ],
     ADMIN: '*',
@@ -17,6 +24,12 @@ function roleHasModule(role, module) {
     if (!allowed) return false;
     if (allowed === '*') return true;
     return allowed.includes(module);
+}
+
+export function userHasModuleAccess(user, module) {
+    if (!user) return false;
+    if (roleHasModule(user.role, module)) return true;
+    return user.role === 'STAFF' && user.modulePermissions?.includes(module);
 }
 
 export const authorizeRoles = (...allowedRoles) => {
@@ -39,18 +52,7 @@ export const authorizeModule = (requiredModule) => {
     return (req, res, next) => {
         if (!req.user) return next(new ForbiddenError('User context unauthenticated'));
 
-        const { role, modulePermissions } = req.user;
-
-        // Explicit SUPER_ADMIN / ADMIN bypass.
-        if (role === 'SUPER_ADMIN' || role === 'ADMIN') return next();
-
-        // Role-default modules.
-        if (roleHasModule(role, requiredModule)) return next();
-
-        // STAFF: check explicit grants.
-        if (role === 'STAFF' && modulePermissions?.includes(requiredModule)) {
-            return next();
-        }
+        if (userHasModuleAccess(req.user, requiredModule)) return next();
 
         return next(new ForbiddenError(`Access denied to the ${requiredModule} module`));
     };

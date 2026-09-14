@@ -85,7 +85,8 @@ export class ParentService {
                     throw new BadRequestError('An account with this email address already exists');
                 }
 
-                if (!input.email) throw new BadRequestError('Email is required when creating a portal account');
+                if (!input.email)
+                    throw new BadRequestError('Email is required when creating a portal account');
                 const temporaryPassword = `SMIS-${randomBytes(12).toString('base64url')}`;
                 const hashedPassword = await bcrypt.hash(temporaryPassword, 12);
 
@@ -102,7 +103,12 @@ export class ParentService {
                 });
                 userId = newUser.id;
 
-                portalCredentials = { to: portalEmail, firstName: input.firstName, temporaryPassword, userId };
+                portalCredentials = {
+                    to: portalEmail,
+                    firstName: input.firstName,
+                    temporaryPassword,
+                    userId,
+                };
             }
 
             // Create Parent record
@@ -126,8 +132,13 @@ export class ParentService {
             try {
                 await sendTemporaryCredentials({ ...portalCredentials, role: 'PARENT' });
             } catch (error) {
-                await prisma.user.update({ where: { id: portalCredentials.userId }, data: { isActive: false } });
-                throw new BadRequestError('Parent was created but credentials could not be delivered; the account has been deactivated.');
+                await prisma.user.update({
+                    where: { id: portalCredentials.userId },
+                    data: { isActive: false },
+                });
+                throw new BadRequestError(
+                    'Parent was created but credentials could not be delivered; the account has been deactivated.',
+                );
             }
         }
 
@@ -153,14 +164,14 @@ export class ParentService {
             ...(schoolId ? { schoolId } : {}),
             ...(search
                 ? {
-                    OR: [
-                        { firstName: { contains: search, mode: 'insensitive' } },
-                        { lastName: { contains: search, mode: 'insensitive' } },
-                        { phone: { contains: search } },
-                        { nationalIdNumber: { contains: search } },
-                        { email: { contains: search, mode: 'insensitive' } },
-                    ],
-                }
+                      OR: [
+                          { firstName: { contains: search, mode: 'insensitive' } },
+                          { lastName: { contains: search, mode: 'insensitive' } },
+                          { phone: { contains: search } },
+                          { nationalIdNumber: { contains: search } },
+                          { email: { contains: search, mode: 'insensitive' } },
+                      ],
+                  }
                 : {}),
         };
 
@@ -213,7 +224,9 @@ export class ParentService {
             where: { id: parentId },
             data: {
                 ...(input.firstName && { firstName: input.firstName.trim() }),
-                ...(input.middleName !== undefined && { middleName: input.middleName ? input.middleName.trim() : null }),
+                ...(input.middleName !== undefined && {
+                    middleName: input.middleName ? input.middleName.trim() : null,
+                }),
                 ...(input.lastName && { lastName: input.lastName.trim() }),
                 ...(input.nationalIdNumber && { nationalIdNumber: input.nationalIdNumber }),
                 ...(input.phone && { phone: input.phone }),

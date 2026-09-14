@@ -3,7 +3,11 @@ import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js'
 import { recordAudit } from '../../shared/audit.js';
 
 export class AttendanceService {
-    static async markClassAttendance({ date, streamId, attendances }, actor, { ipAddress, userAgent } = {}) {
+    static async markClassAttendance(
+        { date, streamId, attendances },
+        actor,
+        { ipAddress, userAgent } = {},
+    ) {
         const schoolId = actor.schoolId;
         if (!schoolId) throw new BadRequestError('User context must belong to a school');
 
@@ -24,11 +28,15 @@ export class AttendanceService {
                 where: { id: { in: enrollmentIds }, schoolId, streamId },
                 select: { id: true, studentId: true },
             });
-            const enrollmentById = new Map(enrollments.map((enrollment) => [enrollment.id, enrollment]));
+            const enrollmentById = new Map(
+                enrollments.map((enrollment) => [enrollment.id, enrollment]),
+            );
             for (const record of attendances) {
                 const enrollment = enrollmentById.get(record.enrollmentId);
                 if (!enrollment || enrollment.studentId !== record.studentId) {
-                    throw new BadRequestError('Attendance student and enrollment do not match this stream');
+                    throw new BadRequestError(
+                        'Attendance student and enrollment do not match this stream',
+                    );
                 }
             }
 

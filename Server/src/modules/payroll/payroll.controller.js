@@ -9,11 +9,12 @@ export class PayrollController {
             if (!validation.success) {
                 throw new BadRequestError('Validation Error', validation.error.format());
             }
+            const [year, month] = validation.data.month.split('-').map(Number);
 
             const job = await enqueueJob({
                 type: JOB_TYPES.PAYROLL_RUN,
                 schoolId: req.user.schoolId,
-                payload: { month: validation.data.month, actorId: req.user.id },
+                payload: { year, month, actorId: req.user.id },
             });
 
             return res.status(202).json({

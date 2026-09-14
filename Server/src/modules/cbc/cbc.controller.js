@@ -10,11 +10,10 @@ export class CBCController {
                 throw new BadRequestError('Validation Error', validation.error.format());
             }
 
-            const assessment = await CBCService.recordAssessment(
-                validation.data,
-                req.user,
-                { ipAddress: req.ip, userAgent: req.headers['user-agent'] }
-            );
+            const assessment = await CBCService.recordAssessment(validation.data, req.user, {
+                ipAddress: req.ip,
+                userAgent: req.headers['user-agent'],
+            });
 
             return res.status(201).json({
                 success: true,
@@ -29,11 +28,7 @@ export class CBCController {
     static async getStudentAssessments(req, res, next) {
         try {
             const { studentId, termId } = req.params;
-            const data = await CBCService.getLatestStudentAssessments(
-                studentId,
-                termId,
-                req.user.schoolId
-            );
+            const data = await CBCService.getLatestStudentAssessments(studentId, termId, req.user);
 
             return res.status(200).json({
                 success: true,

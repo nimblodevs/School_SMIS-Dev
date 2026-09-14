@@ -142,7 +142,9 @@ export class AcademicsController {
         try {
             const input = parse(assignTeacherSubjectSchema, req.body);
             const data = await AcademicsService.assignTeacherSubject(input, req.user, ctxOf(req));
-            return res.status(201).json({ success: true, message: 'Subject assigned to teacher', data });
+            return res
+                .status(201)
+                .json({ success: true, message: 'Subject assigned to teacher', data });
         } catch (err) {
             return next(err);
         }
@@ -152,7 +154,9 @@ export class AcademicsController {
         try {
             const input = parse(assignClassSubjectSchema, req.body);
             const data = await AcademicsService.assignClassSubject(input, req.user, ctxOf(req));
-            return res.status(201).json({ success: true, message: 'Subject allocated to stream', data });
+            return res
+                .status(201)
+                .json({ success: true, message: 'Subject allocated to stream', data });
         } catch (err) {
             return next(err);
         }

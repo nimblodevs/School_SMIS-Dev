@@ -10,11 +10,10 @@ export class AttendanceController {
                 throw new BadRequestError('Validation Error', validation.error.format());
             }
 
-            const result = await AttendanceService.markClassAttendance(
-                validation.data,
-                req.user,
-                { ipAddress: req.ip, userAgent: req.headers['user-agent'] }
-            );
+            const result = await AttendanceService.markClassAttendance(validation.data, req.user, {
+                ipAddress: req.ip,
+                userAgent: req.headers['user-agent'],
+            });
 
             return res.status(200).json({
                 success: true,
@@ -35,7 +34,7 @@ export class AttendanceController {
 
             const register = await AttendanceService.getAttendanceRegister(
                 validation.data,
-                req.user.schoolId
+                req.user.schoolId,
             );
 
             return res.status(200).json({

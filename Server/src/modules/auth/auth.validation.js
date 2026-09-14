@@ -20,10 +20,19 @@ export const changePasswordSchema = z.object({
     newPassword: z
         .string()
         .min(12, 'New password must be at least 12 characters')
-        .refine((password) => /[a-z]/.test(password), 'New password must contain a lowercase letter')
-        .refine((password) => /[A-Z]/.test(password), 'New password must contain an uppercase letter')
+        .refine(
+            (password) => /[a-z]/.test(password),
+            'New password must contain a lowercase letter',
+        )
+        .refine(
+            (password) => /[A-Z]/.test(password),
+            'New password must contain an uppercase letter',
+        )
         .refine((password) => /\d/.test(password), 'New password must contain a number')
-        .refine((password) => /[^A-Za-z0-9]/.test(password), 'New password must contain a special character'),
+        .refine(
+            (password) => /[^A-Za-z0-9]/.test(password),
+            'New password must contain a special character',
+        ),
 });
 
 export const forgotPasswordSchema = z.object({

@@ -16,7 +16,10 @@ export class ParentActivationService {
         });
 
         if (!parent) throw new NotFoundError('Parent profile not found');
-        if (!parent.email) throw new BadRequestError('Parent email is required before sending an activation invite');
+        if (!parent.email)
+            throw new BadRequestError(
+                'Parent email is required before sending an activation invite',
+            );
 
         // Generate secure token valid for 48 hours
         const rawToken = crypto.randomBytes(32).toString('hex');
@@ -55,7 +58,11 @@ export class ParentActivationService {
             },
         });
 
-        await sendParentActivationInvite({ to: parent.email, firstName: parent.firstName, token: rawToken });
+        await sendParentActivationInvite({
+            to: parent.email,
+            firstName: parent.firstName,
+            token: rawToken,
+        });
 
         await recordAudit({
             action: 'INVITE',

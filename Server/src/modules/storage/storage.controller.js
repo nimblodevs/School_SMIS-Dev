@@ -24,11 +24,10 @@ export class StorageController {
                 throw new BadRequestError('Validation Error', validation.error.format());
             }
 
-            const fileRecord = await StorageService.registerFileUpload(
-                validation.data,
-                req.user,
-                { ipAddress: req.ip, userAgent: req.headers['user-agent'] }
-            );
+            const fileRecord = await StorageService.registerFileUpload(validation.data, req.user, {
+                ipAddress: req.ip,
+                userAgent: req.headers['user-agent'],
+            });
 
             return res.status(201).json({
                 success: true,
@@ -43,11 +42,7 @@ export class StorageController {
     static async getEntityFiles(req, res, next) {
         try {
             const { entityType, entityId } = req.params;
-            const files = await StorageService.getFilesByEntity(
-                entityType,
-                entityId,
-                req.user.schoolId
-            );
+            const files = await StorageService.getFilesByEntity(entityType, entityId, req.user);
 
             return res.status(200).json({
                 success: true,

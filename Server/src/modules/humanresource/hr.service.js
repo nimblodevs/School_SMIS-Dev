@@ -1,5 +1,5 @@
-import { prisma, runTransaction } from '../../config/prisma.js';
-import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
+import { runTransaction } from '../../config/prisma.js';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../../shared/errors/AppError.js';
 import { recordAudit } from '../../shared/audit.js';
 
 export class HRService {
@@ -13,13 +13,24 @@ export class HRService {
         return runTransaction(async (tx) => {
             const [leaveTypes, teachers, staff] = await Promise.all([
                 tx.leaveType.findMany({ where: { schoolId } }),
-                tx.teacher.findMany({ where: { schoolId }, select: { id: true, employeeKey: true } }),
+                tx.teacher.findMany({
+                    where: { schoolId },
+                    select: { id: true, employeeKey: true },
+                }),
                 tx.staff.findMany({ where: { schoolId }, select: { id: true, employeeKey: true } }),
             ]);
 
             const employees = [
-                ...teachers.map((t) => ({ employeeKey: t.employeeKey, teacherId: t.id, staffId: null })),
-                ...staff.map((s) => ({ employeeKey: s.employeeKey, teacherId: null, staffId: s.id })),
+                ...teachers.map((t) => ({
+                    employeeKey: t.employeeKey,
+                    teacherId: t.id,
+                    staffId: null,
+                })),
+                ...staff.map((s) => ({
+                    employeeKey: s.employeeKey,
+                    teacherId: null,
+                    staffId: s.id,
+                })),
             ];
 
             // Build all upserts as Prisma promises bound to `tx`
@@ -74,6 +85,7 @@ export class HRService {
 
     static async requestLeave(payload, actor, ctx = {}) {
         const schoolId = actor.schoolId;
+        if (!schoolId) throw new ForbiddenError('User is not associated with a school');
         const start = new Date(payload.startDate);
         const end = new Date(payload.endDate);
         if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
@@ -85,17 +97,50 @@ export class HRService {
             throw new BadRequestError('Exactly one of teacherId or staffId must be provided');
         }
 
-        return prisma.leaveRequest.create({
-            data: {
-                schoolId,
-                leaveTypeId: payload.leaveTypeId,
-                teacherId: payload.teacherId ?? null,
-                staffId: payload.staffId ?? null,
-                startDate: start,
-                endDate: end,
-                reason: payload.reason ?? null,
-                status: 'PENDING',
-            },
+        return runTransaction(async (tx) => {
+            const target = payload.teacherId
+                ? await tx.teacher.findFirst({
+                      where: { id: payload.teacherId, schoolId },
+                      select: { userId: true },
+                  })
+                : await tx.staff.findFirst({
+                      where: { id: payload.staffId, schoolId },
+                      select: { userId: true },
+                  });
+            if (!target) throw new NotFoundError('Employee profile not found in this school');
+            if (
+                !['ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(actor.role) &&
+                target.userId !== actor.id
+            ) {
+                throw new ForbiddenError(
+                    'You may only request leave for your own employee profile',
+                );
+            }
+
+            const request = await tx.leaveRequest.create({
+                data: {
+                    schoolId,
+                    leaveTypeId: payload.leaveTypeId,
+                    teacherId: payload.teacherId ?? null,
+                    staffId: payload.staffId ?? null,
+                    startDate: start,
+                    endDate: end,
+                    reason: payload.reason ?? null,
+                    status: 'PENDING',
+                },
+            });
+            await recordAudit(
+                {
+                    action: 'CREATE',
+                    actorId: actor.id,
+                    schoolId,
+                    entityType: 'LeaveRequest',
+                    entityId: request.id,
+                    ...ctx,
+                },
+                tx,
+            );
+            return request;
         });
     }
 
@@ -124,9 +169,7 @@ export class HRService {
             const days = HRService._workingDaysBetween(start, end);
             if (days <= 0) throw new BadRequestError('Leave must include at least one working day');
 
-            const employeeKey = leave.teacherId
-                ? `T:${leave.teacherId}`
-                : `S:${leave.staffId}`;
+            const employeeKey = leave.teacherId ? `T:${leave.teacherId}` : `S:${leave.staffId}`;
             const year = start.getUTCFullYear();
 
             // Lock balance row
@@ -185,7 +228,9 @@ export class HRService {
     /** Count Mon-Fri days between two dates, inclusive. */
     static _workingDaysBetween(start, end) {
         let count = 0;
-        const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
+        const cursor = new Date(
+            Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()),
+        );
         const last = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
         while (cursor <= last) {
             const dow = cursor.getUTCDay();

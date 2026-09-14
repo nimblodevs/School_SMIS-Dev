@@ -1,14 +1,9 @@
 import { prisma, runTransaction } from '../../config/prisma.js';
 import { recordAudit } from '../../shared/audit.js';
-import {
-    BadRequestError,
-    NotFoundError,
-    ConflictError,
-} from '../../shared/errors/AppError.js';
+import { BadRequestError, NotFoundError, ConflictError } from '../../shared/errors/AppError.js';
 import { assertOwnership, resolveSchoolId } from '../../shared/ownership.js';
 
 const MAX_WORKLOAD_ASSIGNMENTS = 12;
-const PROMOTION_BATCH_LIMIT = 500;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -158,7 +153,9 @@ export class AcademicsService {
             });
         } catch (err) {
             if (isUniqueError(err)) {
-                throw new ConflictError('A term with this name already exists for this academic year');
+                throw new ConflictError(
+                    'A term with this name already exists for this academic year',
+                );
             }
             throw err;
         }
@@ -260,7 +257,9 @@ export class AcademicsService {
             });
         } catch (err) {
             if (isUniqueError(err)) {
-                throw new ConflictError('A stream with this name already exists in this class level');
+                throw new ConflictError(
+                    'A stream with this name already exists in this class level',
+                );
             }
             throw err;
         }

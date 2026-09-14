@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { prisma, runTransaction } from '../../config/prisma.js';
+import { runTransaction } from '../../config/prisma.js';
 import { BadRequestError } from '../../shared/errors/AppError.js';
 import { recordAudit } from '../../shared/audit.js';
 import { nextPayslipNo } from '../../shared/sequences.js';
@@ -38,23 +38,32 @@ export class PayrollService {
 
             const run = existing
                 ? await tx.payrollRun.update({
-                    where: { id: existing.id },
-                    data: { status: 'PROCESSING', processedById: actor.id, processedAt: new Date() },
-                })
+                      where: { id: existing.id },
+                      data: {
+                          status: 'PROCESSING',
+                          processedById: actor.id,
+                          processedAt: new Date(),
+                      },
+                  })
                 : await tx.payrollRun.create({
-                    data: {
-                        schoolId, year, month,
-                        periodStart, periodEnd,
-                        status: 'PROCESSING',
-                        processedById: actor.id,
-                        processedAt: new Date(),
-                    },
-                });
+                      data: {
+                          schoolId,
+                          year,
+                          month,
+                          periodStart,
+                          periodEnd,
+                          status: 'PROCESSING',
+                          processedById: actor.id,
+                          processedAt: new Date(),
+                      },
+                  });
 
             await tx.payrollRunEvent.create({
                 data: {
-                    schoolId, payrollRunId: run.id,
-                    fromStatus: existing?.status ?? null, toStatus: 'PROCESSING',
+                    schoolId,
+                    payrollRunId: run.id,
+                    fromStatus: existing?.status ?? null,
+                    toStatus: 'PROCESSING',
                     actorId: actor.id,
                     notes: 'Payroll run started',
                 },
@@ -260,8 +269,10 @@ export class PayrollService {
 
             await tx.payrollRunEvent.create({
                 data: {
-                    schoolId, payrollRunId: run.id,
-                    fromStatus: 'PROCESSING', toStatus: 'PENDING_APPROVAL',
+                    schoolId,
+                    payrollRunId: run.id,
+                    fromStatus: 'PROCESSING',
+                    toStatus: 'PENDING_APPROVAL',
                     actorId: actor.id,
                     metadata: { totalGross: totalGross.toString(), totalNet: totalNet.toString() },
                 },
@@ -300,15 +311,16 @@ export class PayrollService {
 
         // For FLAT_RATE / FIXED, only one config applies
         if (deduction.calculationType !== 'PROGRESSIVE') {
-            const cfg = configs.find((c) => D(c.minSalary).lte(grossPay) &&
-                (!c.maxSalary || D(c.maxSalary).gte(grossPay)));
+            const cfg = configs.find(
+                (c) =>
+                    D(c.minSalary).lte(grossPay) && (!c.maxSalary || D(c.maxSalary).gte(grossPay)),
+            );
             if (!cfg) return D(0);
             if (deduction.calculationType === 'FIXED') return D(cfg.fixedAmount ?? 0);
             return grossPay.mul(cfg.rate).plus(cfg.fixedAmount ?? 0);
         }
 
         // PROGRESSIVE: sum across all brackets up to grossPay
-        let remaining = grossPay;
         let total = D(0);
         const brackets = configs
             .filter((c) => D(c.minSalary).lt(grossPay))
