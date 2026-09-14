@@ -1,0 +1,206 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  TEACHER
+  STAFF
+  STUDENT
+  PARENT
+  BURSAR
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum ParentRelation {
+  MOTHER
+  FATHER
+  GUARDIAN
+}
+
+enum StaffModule {
+  STUDENTS
+  ATTENDANCE
+  TIMETABLE
+  EXAMS
+  CBC
+  FEES
+  REPORTS
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  AUTH_LOGIN_SUCCESS
+  AUTH_LOGIN_FAILED
+  AUTH_REFRESH_TOKEN_REUSE
+  AUTH_LOGOUT
+  PASSWORD_CHANGED
+  PASSWORD_CHANGE_FAILED
+  ACCOUNT_LOCKED
+  IMPERSONATION_STARTED
+  IMPERSONATED_ACTION
+  IMPERSONATION_ENDED
+  PAYMENT_RECORDED
+  PAYMENT_ALLOCATED
+  PAYMENT_REFUNDED
+  INVOICE_ISSUED
+  PAYROLL_PROCESSED
+  INVITE
+}
+
+model School {
+  id                 String   @id @default(uuid())
+  name               String
+  slug               String   @unique
+  schoolCode         String   @unique
+  motto              String
+  vision             String
+  mission            String
+  address            String?
+  city               String?
+  county             String?
+  postalCode         String?
+  phone              String   @unique
+  email              String
+  website            String?
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  nextTeacherSequence Int      @default(0)
+  nextStaffSequence   Int      @default(0)
+
+  users                 User[]
+  teachers              Teacher[]
+  staff                 Staff[]
+  students              Student[]
+  parents               Parent[]
+  academicYears         AcademicYear[]
+  terms                 Term[]
+  classLevels           ClassLevel[]
+  streams               Stream[]
+  subjects              Subject[]
+  enrollments           Enrollment[]
+  attendances           Attendance[]
+  exams                 Exam[]
+  examResults           ExamResult[]
+  timetableSlots        TimetableSlot[]
+  classSubjects         ClassSubject[]
+  learningAreas         LearningArea[]
+  strands               Strand[]
+  subStrands            SubStrand[]
+  competencyAssessments CompetencyAssessment[]
+  feeStructures         FeeStructure[]
+  invoices              Invoice[]
+  payments              Payment[]
+  paymentAllocations    PaymentAllocation[]
+  ledgerEntries         LedgerEntry[]
+  creditNotes           CreditNote[]
+  creditNoteApplications CreditNoteApplication[]
+  paymentRefunds        PaymentRefund[]
+  idempotencyKeys       IdempotencyKey[]
+  staffModuleAccess     StaffModuleAccess[]
+  auditLogs             AuditLog[]
+  salaryStructures      SalaryStructure[]
+  allowanceTypes        AllowanceType[]
+  statutoryDeductions   StatutoryDeduction[]
+  statutoryRateConfigs  StatutoryRateConfig[]
+  customDeductions      CustomDeduction[]
+  payrollRuns           PayrollRun[]
+  payslips              Payslip[]
+  employmentContracts   EmploymentContract[]
+  leaveTypes            LeaveType[]
+  leaveBalances         LeaveBalance[]
+  leaveRequests         LeaveRequest[]
+  employeeNumbers       EmployeeNumber[]
+  bankAccounts          BankAccount[]
+  jobGroups             JobGroup[]
+  employeeSalaryLoans   EmployeeSalaryLoan[]
+  loanRepayments        LoanRepayment[]
+  loanProviders         LoanProvider[]
+  loanRequests          EmployeeLoanRequest[]
+  resignationRecords    ResignationRecord[]
+  uploads               FileUpload[]
+  backgroundJobs        BackgroundJob[]
+  settings              SchoolSettings?
+
+  curriculumFrameworks CurriculumFramework[]
+  educationLevels      EducationLevel[]
+  grades               Grade[]
+  pathways             Pathway[]
+  assessmentScales     AssessmentScale[]
+  assessmentLevels     AssessmentLevel[]
+  assessments          Assessment[]
+  learnerAssessments   LearnerAssessment[]
+  rubrics              Rubric[]
+  portfolios           Portfolio[]
+  evidenceRecords      Evidence[]
+  competencies         Competency[]
+  learnerPathways      LearnerPathway[]
+  pathwayLearningAreas PathwayLearningArea[]
+  learningOutcomes     LearningOutcome[]
+  assessmentItems      AssessmentItem[]
+
+  @@map("schools")
+}
+
+model SchoolSettings {
+  id             String   @id @default(uuid())
+  schoolId       String   @unique
+  school         School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  mpesaShortcode String?  @unique
+  mpesaEnabled   Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("school_settings")
+}
+
+model SystemSequence {
+  key            String   @id
+  nextSchoolCode Int      @default(1)
+  updatedAt      DateTime @updatedAt
+
+  @@map("system_sequences")
+}
+
+model AdmissionSequence {
+  schoolId String
+  year     Int
+  nextVal  Int @default(1) @map("next_val")
+
+  @@id([schoolId, year])
+  @@map("admission_sequences")
+}
+
+model AuditLog {
+  id       String  @id @default(uuid())
+  schoolId String?
+  school   School? @relation(fields: [schoolId], references: [id])
+
+  actorId    String?
+  entityType String
+  entityId   String?
+  action     AuditAction
+  ipAddress  String?
+  userAgent  String?
+  traceId    String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([entityType, entityId])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}

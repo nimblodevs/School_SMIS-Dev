@@ -1,0 +1,369 @@
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+model Attendance {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  studentId    String
+  student      Student          @relation(fields: [studentId], references: [id])
+  enrollmentId String
+  enrollment   Enrollment       @relation(fields: [enrollmentId], references: [id])
+  date         DateTime         @db.Date
+  status       AttendanceStatus
+  markedById   String
+  markedBy     User             @relation(fields: [markedById], references: [id])
+  createdAt    DateTime         @default(now())
+
+  @@unique([studentId, date])
+  @@index([schoolId])
+  @@index([enrollmentId, date])
+  @@map("attendance")
+}
+
+model Exam {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  name      String
+  termId    String
+  term      Term     @relation(fields: [termId], references: [id])
+  subjectId String
+  subject   Subject  @relation(fields: [subjectId], references: [id])
+  examDate  DateTime @db.Date
+  maxScore  Decimal  @default(100) @db.Decimal(7, 2)
+
+  results ExamResult[]
+
+  @@unique([termId, subjectId, name])
+  @@index([schoolId])
+  @@map("exams")
+}
+
+model ExamResult {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  examId       String
+  exam         Exam       @relation(fields: [examId], references: [id])
+  studentId    String
+  student      Student    @relation(fields: [studentId], references: [id])
+  enrollmentId String
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id])
+  score        Decimal    @db.Decimal(7, 2)
+  grade        String?
+  remarks      String?
+
+  @@unique([examId, studentId])
+  @@index([schoolId])
+  @@map("exam_results")
+}
+
+model LearningArea {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  curriculumFrameworkId String?
+  curriculumFramework   CurriculumFramework? @relation(fields: [curriculumFrameworkId], references: [id])
+
+  name       String
+  code       String?
+  level      String?
+  category   String?
+  active     Boolean @default(true)
+
+  strands      Strand[]
+  pathwayLinks PathwayLearningArea[]
+  assessments  Assessment[]
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+  @@map("learning_areas")
+}
+
+model Competency {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  code        String
+  name        String
+  description String?
+  active      Boolean @default(true)
+
+  outcomes LearningOutcome[]
+
+  @@unique([schoolId, code])
+  @@index([schoolId])
+  @@map("competencies")
+}
+
+model Strand {
+  id             String       @id @default(uuid())
+  schoolId       String
+  school         School       @relation(fields: [schoolId], references: [id])
+  learningAreaId String
+  learningArea   LearningArea @relation(fields: [learningAreaId], references: [id])
+
+  name         String
+  code         String?
+  description  String?
+  subStrands   SubStrand[]
+  learningOutcomes LearningOutcome[]
+
+  @@index([schoolId])
+  @@map("strands")
+}
+
+model SubStrand {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+  strandId String
+  strand   Strand @relation(fields: [strandId], references: [id])
+
+  name        String
+  code        String?
+  assessments CompetencyAssessment[]
+
+  @@index([schoolId])
+  @@map("sub_strands")
+}
+
+model LearningOutcome {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  strandId     String
+  strand       Strand      @relation(fields: [strandId], references: [id])
+  competencyId String?
+  competency   Competency? @relation(fields: [competencyId], references: [id])
+
+  code        String
+  description String
+  active      Boolean @default(true)
+
+  assessments AssessmentItem[]
+
+  @@unique([strandId, code])
+  @@index([schoolId])
+  @@map("learning_outcomes")
+}
+
+enum AssessmentType {
+  DIAGNOSTIC
+  FORMATIVE
+  SCHOOL_BASED_ASSESSMENT
+  PROJECT
+  PRACTICAL
+  OBSERVATION
+  PORTFOLIO
+  ORAL
+  WRITTEN
+  PERFORMANCE
+  NATIONAL_ASSESSMENT
+}
+
+model AssessmentScale {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  curriculumFrameworkId String
+  curriculumFramework   CurriculumFramework @relation(fields: [curriculumFrameworkId], references: [id])
+
+  name      String
+  type      String
+  version   String?
+  active    Boolean @default(true)
+  createdAt DateTime @default(now())
+
+  levels AssessmentLevel[]
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+  @@map("assessment_scales")
+}
+
+model AssessmentLevel {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  scaleId       String
+  scale         AssessmentScale @relation(fields: [scaleId], references: [id])
+
+  code        String
+  label       String
+  description String?
+  minScore    Decimal? @db.Decimal(5, 2)
+  maxScore    Decimal? @db.Decimal(5, 2)
+
+  @@unique([scaleId, code])
+  @@index([schoolId])
+  @@map("assessment_levels")
+}
+
+model Rubric {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  name        String
+  description String?
+  criteria    Json?
+  createdAt   DateTime @default(now())
+
+  assessments Assessment[]
+
+  @@index([schoolId])
+  @@map("rubrics")
+}
+
+model Assessment {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  termId      String?
+  term        Term?      @relation(fields: [termId], references: [id])
+  rubricId    String?
+  rubric      Rubric?    @relation(fields: [rubricId], references: [id])
+  type        AssessmentType
+  title       String
+  description String?
+  learningAreaId String?
+  learningArea   LearningArea? @relation(fields: [learningAreaId], references: [id])
+  dueDate        DateTime? @db.Date
+  createdAt      DateTime @default(now())
+
+  items     AssessmentItem[]
+  learnerAssessments LearnerAssessment[]
+
+  @@index([schoolId])
+  @@map("assessments")
+}
+
+model AssessmentItem {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  assessmentId     String
+  assessment       Assessment @relation(fields: [assessmentId], references: [id])
+  learningOutcomeId String?
+  learningOutcome   LearningOutcome? @relation(fields: [learningOutcomeId], references: [id])
+
+  prompt      String
+  maxScore    Decimal? @db.Decimal(7, 2)
+  createdAt   DateTime @default(now())
+
+  @@index([schoolId])
+  @@map("assessment_items")
+}
+
+enum CompetencyLevel {
+  EXCEEDING_EXPECTATION
+  MEETING_EXPECTATION
+  APPROACHING_EXPECTATION
+  BELOW_EXPECTATION
+}
+
+model LearnerAssessment {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  studentId      String
+  student        Student         @relation(fields: [studentId], references: [id])
+  enrollmentId   String?
+  enrollment     Enrollment?     @relation(fields: [enrollmentId], references: [id])
+  assessmentId   String
+  assessment     Assessment      @relation(fields: [assessmentId], references: [id])
+  termId         String?
+  term           Term?           @relation(fields: [termId], references: [id])
+
+  score          Decimal? @db.Decimal(7, 2)
+  level          CompetencyLevel?
+  remarks        String?
+  evidenceUrl    String?
+  assessedById   String?
+  assessedBy     User?           @relation("LearnerAssessmentAssessor", fields: [assessedById], references: [id])
+  assessedAt     DateTime        @default(now())
+
+  @@index([studentId, assessmentId])
+  @@index([schoolId])
+  @@map("learner_assessments")
+}
+
+model Portfolio {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  studentId String
+  student   Student @relation(fields: [studentId], references: [id])
+
+  title       String
+  description String?
+  createdAt   DateTime @default(now())
+
+  evidence Evidence[]
+
+  @@index([studentId])
+  @@map("portfolios")
+}
+
+model Evidence {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  portfolioId String?
+  portfolio   Portfolio? @relation(fields: [portfolioId], references: [id])
+
+  title       String
+  kind        String
+  url         String?
+  description String?
+  teacherComment String?
+  uploadedAt  DateTime @default(now())
+
+  @@index([schoolId])
+  @@map("evidence")
+}
+
+model CompetencyAssessment {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  studentId    String
+  student      Student    @relation(fields: [studentId], references: [id])
+  enrollmentId String
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id])
+  subStrandId  String
+  subStrand    SubStrand  @relation(fields: [subStrandId], references: [id])
+  termId       String
+  term         Term       @relation(fields: [termId], references: [id])
+
+  level        CompetencyLevel
+  remarks      String?
+  assessedById String
+  assessedBy   User            @relation(fields: [assessedById], references: [id])
+  assessedAt   DateTime        @default(now())
+  createdAt    DateTime        @default(now())
+
+  @@index([studentId, subStrandId, termId, assessedAt(sort: Desc)])
+  @@index([schoolId])
+  @@map("competency_assessments")
+}

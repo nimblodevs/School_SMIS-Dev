@@ -1,0 +1,502 @@
+enum AllowanceApplicability {
+  ALL_EMPLOYEES
+  TEACHERS
+  STAFF
+  JOB_GROUP
+}
+
+model JobGroup {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  name        String
+  code        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  teachers       Teacher[]
+  staff          Staff[]
+  allowanceTypes AllowanceType[]
+
+  @@unique([schoolId, code])
+  @@unique([schoolId, name])
+  @@index([schoolId])
+  @@map("job_groups")
+}
+
+model BankAccount {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id])
+  staffId   String?
+  staff     Staff?   @relation(fields: [staffId], references: [id])
+
+  bankName              String
+  branchName            String?
+  accountHolderName     String
+  accountNumber         String
+  iban                  String?
+  swiftCode             String?
+  routingNumber         String?
+  currency              String   @default("KES")
+  isPrimary             Boolean  @default(false)
+  supportsWireTransfer  Boolean  @default(true)
+  supportsBankTransfer  Boolean  @default(true)
+  isVerified            Boolean  @default(false)
+  verificationReference String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([teacherId, accountNumber])
+  @@unique([staffId, accountNumber])
+  @@index([schoolId])
+  @@map("bank_accounts")
+}
+
+enum LoanStatus {
+  ACTIVE
+  PARTIALLY_PAID
+  COMPLETED
+  DEFAULTED
+}
+
+enum LoanRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum LoanSourceType {
+  SCHOOL
+  BANK
+  SACCO
+  OTHER
+}
+
+model LoanProvider {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  name        String
+  type        LoanSourceType @default(BANK)
+  contactName String
+  phone       String
+  email       String
+  address     String?
+  isActive    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+
+  loans EmployeeSalaryLoan[]
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+  @@map("loan_providers")
+}
+
+model EmployeeLoanRequest {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id])
+  staffId   String?
+  staff     Staff?   @relation(fields: [staffId], references: [id])
+
+  requestType      LoanSourceType    @default(SCHOOL)
+  title            String
+  amount           Decimal           @db.Decimal(12, 2)
+  reason           String?
+  purpose          String?
+  requestedAt      DateTime          @default(now())
+  neededByDate     DateTime?         @db.Date
+  status           LoanRequestStatus @default(PENDING)
+  approvedAmount   Decimal?          @db.Decimal(12, 2)
+  approvalNotes    String?
+  rejectionReason  String?
+  attachmentId     String?
+  attachmentUrl    String?
+  approvedByUserId String?
+  approvedAt       DateTime?
+
+  loan EmployeeSalaryLoan?
+
+  @@index([schoolId, status])
+  @@index([schoolId, teacherId])
+  @@index([schoolId, staffId])
+  @@map("employee_loan_requests")
+}
+
+model EmployeeSalaryLoan {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id])
+  staffId   String?
+  staff     Staff?   @relation(fields: [staffId], references: [id])
+
+  requestId String?              @unique
+  request   EmployeeLoanRequest? @relation(fields: [requestId], references: [id])
+
+  providerId String?
+  provider   LoanProvider? @relation(fields: [providerId], references: [id])
+
+  title            String
+  loanType         String
+  amount           Decimal        @db.Decimal(12, 2)
+  balance          Decimal        @db.Decimal(12, 2)
+  monthlyDeduction Decimal        @db.Decimal(12, 2)
+  interestRate     Decimal?       @db.Decimal(5, 2)
+  sourceType       LoanSourceType @default(SCHOOL)
+  accountNumber    String?
+  referenceNumber  String?
+  reason           String?
+  attachmentId     String?
+  attachmentUrl    String?
+  startDate        DateTime       @db.Date
+  dueDate          DateTime?      @db.Date
+  status           LoanStatus     @default(ACTIVE)
+  isApproved       Boolean        @default(false)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  repayments LoanRepayment[]
+
+  @@index([schoolId, status])
+  @@index([schoolId, teacherId])
+  @@index([schoolId, staffId])
+  @@map("employee_salary_loans")
+}
+
+model LoanRepayment {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  loanId String
+  loan   EmployeeSalaryLoan @relation(fields: [loanId], references: [id])
+
+  amount        Decimal  @db.Decimal(12, 2)
+  paymentDate   DateTime @db.Date
+  paymentMethod String?
+  reference     String?
+  notes         String?
+  attachmentId  String?
+  attachmentUrl String?
+  createdAt     DateTime @default(now())
+
+  @@index([loanId, paymentDate])
+  @@index([schoolId, paymentDate])
+  @@map("loan_repayments")
+}
+
+model AllowanceType {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  name          String
+  code          String
+  description   String?
+  applicability AllowanceApplicability @default(ALL_EMPLOYEES)
+  jobGroupId    String?
+  jobGroup      JobGroup?              @relation(fields: [jobGroupId], references: [id])
+  amount        Decimal                @db.Decimal(12, 2)
+  isTaxable     Boolean                @default(true)
+  createdAt     DateTime               @default(now())
+
+  salaryStructures SalaryStructure[]
+
+  @@unique([schoolId, code])
+  @@index([schoolId])
+  @@map("allowance_types")
+}
+
+model SalaryStructure {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id])
+  staffId   String?
+  staff     Staff?   @relation(fields: [staffId], references: [id])
+
+  baseSalary      Decimal        @db.Decimal(12, 2)
+  allowanceTypeId String?
+  allowanceType   AllowanceType? @relation(fields: [allowanceTypeId], references: [id])
+  effectiveDate   DateTime       @db.Date
+  createdAt       DateTime       @default(now())
+
+  @@index([schoolId])
+  @@index([teacherId])
+  @@index([staffId])
+  @@map("salary_structures")
+}
+
+model StatutoryDeduction {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  name        String
+  code        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  rateConfigs StatutoryRateConfig[]
+
+  @@unique([schoolId, code])
+  @@index([schoolId])
+  @@map("statutory_deductions")
+}
+
+model StatutoryRateConfig {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  deductionId String
+  deduction   StatutoryDeduction @relation(fields: [deductionId], references: [id])
+
+  minSalary     Decimal   @db.Decimal(12, 2)
+  maxSalary     Decimal?  @db.Decimal(12, 2)
+  rate          Decimal   @db.Decimal(5, 4)
+  fixedAmount   Decimal?  @db.Decimal(12, 2)
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+
+  @@index([schoolId])
+  @@index([deductionId])
+  @@map("statutory_rate_configs")
+}
+
+model CustomDeduction {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id])
+  staffId   String?
+  staff     Staff?   @relation(fields: [staffId], references: [id])
+
+  name          String
+  amount        Decimal  @db.Decimal(12, 2)
+  isRecurring   Boolean  @default(true)
+  effectiveDate DateTime @db.Date
+
+  @@index([schoolId])
+  @@index([teacherId])
+  @@index([staffId])
+  @@map("custom_deductions")
+}
+
+enum PayrollStatus {
+  PENDING
+  DRAFT
+  PROCESSING
+  PENDING_APPROVAL
+  APPROVED
+  PAID
+}
+
+model PayrollRun {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  month         String
+  status        PayrollStatus @default(DRAFT)
+  processedById String?
+  processedBy   User?         @relation(fields: [processedById], references: [id])
+  processedAt   DateTime?
+  totalGross    Decimal       @default(0) @db.Decimal(14, 2)
+  totalNet      Decimal       @default(0) @db.Decimal(14, 2)
+  createdAt     DateTime      @default(now())
+
+  payslips Payslip[]
+
+  @@unique([schoolId, month])
+  @@index([schoolId])
+  @@map("payroll_runs")
+}
+
+model Payslip {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  payrollRunId String
+  payrollRun   PayrollRun @relation(fields: [payrollRunId], references: [id])
+
+  employeeKey String
+
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id])
+  staffId   String?
+  staff     Staff?   @relation(fields: [staffId], references: [id])
+
+  basicPay        Decimal  @db.Decimal(12, 2)
+  grossPay        Decimal  @db.Decimal(12, 2)
+  totalDeductions Decimal  @db.Decimal(12, 2)
+  netPay          Decimal  @db.Decimal(12, 2)
+  createdAt       DateTime @default(now())
+
+  @@unique([payrollRunId, employeeKey])
+  @@index([schoolId])
+  @@map("payslips")
+}
+
+enum ContractType {
+  PERMANENT
+  CONTRACT
+  FIXED_TERM
+  CASUAL
+  INTERNSHIP
+}
+
+model EmploymentContract {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id])
+  staffId   String?
+  staff     Staff?   @relation(fields: [staffId], references: [id])
+
+  type      ContractType
+  startDate DateTime     @db.Date
+  endDate   DateTime?    @db.Date
+  termsDoc  String?
+  createdAt DateTime     @default(now())
+
+  @@index([schoolId])
+  @@index([teacherId])
+  @@index([staffId])
+  @@map("employment_contracts")
+}
+
+model LeaveType {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  name               String
+  daysAllowedPerYear Int
+  isPaid             Boolean  @default(true)
+  createdAt          DateTime @default(now())
+
+  balances LeaveBalance[]
+  requests LeaveRequest[]
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+  @@map("leave_types")
+}
+
+model LeaveBalance {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  leaveTypeId String
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+
+  employeeKey String
+
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id])
+  staffId   String?
+  staff     Staff?   @relation(fields: [staffId], references: [id])
+
+  year          Int
+  allocatedDays Int
+  usedDays      Int @default(0)
+
+  @@unique([leaveTypeId, employeeKey, year])
+  @@index([schoolId])
+  @@map("leave_balances")
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model LeaveRequest {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  leaveTypeId String
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id])
+  staffId   String?
+  staff     Staff?   @relation(fields: [staffId], references: [id])
+
+  startDate    DateTime    @db.Date
+  endDate      DateTime    @db.Date
+  reason       String?
+  status       LeaveStatus @default(PENDING)
+  approvedById String?
+  approvedBy   User?       @relation(fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+  createdAt    DateTime    @default(now())
+
+  @@index([schoolId])
+  @@index([teacherId])
+  @@index([staffId])
+  @@map("leave_requests")
+}
+
+enum ResignationStatus {
+  PENDING
+  REVIEWED
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+model ResignationRecord {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id])
+  staffId   String?
+  staff     Staff?   @relation(fields: [staffId], references: [id])
+
+  initiatedById String
+  initiatedBy   User    @relation("ResignationInitiatedBy", fields: [initiatedById], references: [id])
+  reviewedById  String?
+  reviewedBy    User?   @relation("ResignationReviewedBy", fields: [reviewedById], references: [id])
+
+  noticeDate    DateTime          @db.Date
+  effectiveDate DateTime          @db.Date
+  reason        String?
+  status        ResignationStatus @default(PENDING)
+  exitInterview String?
+  createdAt     DateTime          @default(now())
+
+  @@index([schoolId])
+  @@index([teacherId])
+  @@index([staffId])
+  @@map("resignation_records")
+}

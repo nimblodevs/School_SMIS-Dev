@@ -1,0 +1,115 @@
+model Student {
+  id       String  @id @default(uuid())
+  schoolId String
+  school   School  @relation(fields: [schoolId], references: [id])
+  userId   String? @unique
+  user     User?   @relation(fields: [userId], references: [id])
+
+  admissionNo             String
+  firstName               String
+  middleName              String?
+  lastName                String
+  nationalIdNumber        String
+  birthCertificateNumber String  @unique
+  passportNumber          String? @unique
+  dateOfBirth             DateTime @db.Date
+  gender                  Gender
+  admissionDate           DateTime @default(now())
+  isActive                Boolean  @default(true)
+  createdAt               DateTime @default(now())
+
+  parents               StudentParent[]
+  enrollments           Enrollment[]
+  attendances           Attendance[]
+  examResults           ExamResult[]
+  competencyAssessments CompetencyAssessment[]
+  learnerAssessments    LearnerAssessment[]
+  learnerPathways       LearnerPathway[]
+  portfolios            Portfolio[]
+  invoices              Invoice[]
+  payments              Payment[]
+  creditNotes           CreditNote[]
+
+  @@unique([schoolId, admissionNo])
+  @@unique([schoolId, nationalIdNumber])
+  @@unique([id, schoolId])
+  @@index([schoolId])
+  @@map("students")
+}
+
+model Parent {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+  userId   String? @unique
+  user     User?   @relation(fields: [userId], references: [id])
+
+  firstName String
+  middleName String?
+  lastName  String
+  phone     String @unique
+  email     String? @unique
+  relation  ParentRelation
+  nationalIdNumber String
+  passportNumber   String? @unique
+  createdAt DateTime @default(now())
+
+  students StudentParent[]
+
+  @@index([schoolId])
+  @@unique([schoolId, nationalIdNumber])
+  @@map("parents")
+}
+
+model StudentParent {
+  studentId               String
+  parentId                String
+  isPrimaryContact        Boolean  @default(false)
+  isFinanciallyResponsible Boolean  @default(false)
+  canPickUp               Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  parent  Parent  @relation(fields: [parentId], references: [id], onDelete: Cascade)
+
+  @@id([studentId, parentId])
+  @@map("student_parents")
+}
+
+model Enrollment {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  studentId      String
+  student        Student          @relation(fields: [studentId], references: [id])
+  streamId       String
+  stream         Stream           @relation(fields: [streamId], references: [id])
+  academicYearId String
+  academicYear   AcademicYear     @relation(fields: [academicYearId], references: [id])
+  gradeId        String?
+  grade          Grade?           @relation(fields: [gradeId], references: [id])
+  pathwayId      String?
+  pathway        Pathway?         @relation(fields: [pathwayId], references: [id])
+  enrolledAt     DateTime         @default(now())
+  status         EnrollmentStatus @default(ACTIVE)
+
+  attendances           Attendance[]
+  examResults           ExamResult[]
+  competencyAssessments CompetencyAssessment[]
+  learnerAssessments    LearnerAssessment[]
+  invoices              Invoice[]
+
+  @@unique([studentId, academicYearId])
+  @@index([schoolId])
+  @@map("enrollments")
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  COMPLETED
+  TRANSFERRED
+  GRADUATED
+  WITHDRAWN
+}

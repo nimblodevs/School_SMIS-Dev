@@ -1,43 +1,25 @@
 # Students Module
 
 ## Purpose
-The students module manages student records, enrollment, profile data, and bulk admission flows for a school.
+The students module manages student profiles, enrollment records, guardianship relationships, and academic progression for a school.
+
+## Key models
+- `Student`
+- `Parent`
+- `StudentParent`
+- `Enrollment`
 
 ## Responsibilities
-- Maintain student profiles and enrollment status
-- Support student lookup, updates, and relationships
-- Handle parental linkage and guardianship data
-- Process admission uploads and bulk student registration
+- Maintain student identity and active status
+- Track academic enrollment by stream and year
+- Link parents and determine financial or pickup responsibilities
+- Support student lookup, updates, and bulk admission flows
 
-## Database models owned
-- `Student`
-- `Enrollment`
-- `StudentParent`
+## Authorization
+- Use explicit permissions such as `students:read`, `students:create`, and `students:update`
+- Parent access should be restricted to their own linked students
+- School scope and ownership must be verified before any read or mutation
 
-## API endpoints
-- Student create, retrieve, and update routes
-- Parent linkage and designation routes
-- Bulk import and batch admission flows
-- Enrollment and school-assignment operations
-
-## Authorization requirements
-- Authenticated users only
-- Module access and role rules apply to mutations and reads
-- School-scoped enforcement is required for all student interactions
-- Parent-access flows should be constrained to the parent’s own linked student records
-
-## Transactions
-- Student creation and initial enrollment should be atomic
-- Bulk imports should validate and commit rows as one logical admission batch
-- Parent linking should be transactional to avoid broken relationships
-
-## Events
-- Student created
-- Enrollment activated or updated
-- Bulk admission processed
-- Parent linkage changed
-
-## External integrations
-- CSV/XLSX admission import tooling
-- Parent and guardian notification systems
-- Academic and attendance data feeds
+## Operational notes
+- Student creation and the initial enrollment should be atomic
+- Bulk import and parent-linking flows should be transactional and auditable

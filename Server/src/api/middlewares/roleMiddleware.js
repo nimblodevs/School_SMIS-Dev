@@ -13,7 +13,7 @@ const ROLE_DEFAULT_MODULES = {
         'FEES',
         'REPORTS',
         'FINANCE',
-        // No PAYROLL — MANAGER is explicitly excluded
+        'PAYROLL',
     ],
     ADMIN: '*',
     SUPER_ADMIN: '*',
@@ -25,10 +25,10 @@ const MODULE_PERMISSIONS = {
     TIMETABLE: ['timetable:read', 'timetable:create', 'timetable:update'],
     EXAMS: ['exams:read', 'exams:create', 'exams:update'],
     CBC: ['cbc:read', 'cbc:create', 'cbc:update'],
-    FEES: ['fees:read', 'fees:create', 'fees:update'],
-    FINANCE: ['fees:read', 'fees:create', 'fees:refund'],
+    FEES: ['fees:read', 'fees:create', 'fees:update', 'fees:approve'],
+    FINANCE: ['fees:read', 'fees:create', 'fees:update', 'fees:refund', 'fees:approve'],
     REPORTS: ['reports:read'],
-    PAYROLL: ['payroll:read', 'payroll:create', 'payroll:process'],
+    PAYROLL: ['payroll:read', 'payroll:create', 'payroll:process', 'payroll:approve'],
 };
 
 const ROLE_PERMISSIONS = {
@@ -53,9 +53,22 @@ const ROLE_PERMISSIONS = {
         'fees:read',
         'fees:create',
         'fees:update',
+        'fees:refund',
+        'fees:approve',
+        'payroll:read',
+        'payroll:create',
+        'payroll:process',
+        'payroll:approve',
         'reports:read',
     ],
-    BURSAR: ['fees:read', 'fees:create', 'fees:update', 'fees:refund', 'reports:read'],
+    BURSAR: [
+        'fees:read',
+        'fees:create',
+        'fees:update',
+        'fees:refund',
+        'fees:approve',
+        'reports:read',
+    ],
     TEACHER: [
         'students:read',
         'attendance:read',

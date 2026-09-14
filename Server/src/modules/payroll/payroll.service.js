@@ -30,7 +30,7 @@ export class PayrollService {
                 include: { payslips: true },
             });
 
-            if (existing && ['APPROVED', 'PAID'].includes(existing.status)) {
+            if (existing && !['DRAFT', 'PENDING'].includes(existing.status)) {
                 throw new BadRequestError(
                     `Payroll for ${year}-${String(month).padStart(2, '0')} is ${existing.status} and locked`,
                 );

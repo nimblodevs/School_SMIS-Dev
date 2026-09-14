@@ -1,137 +1,67 @@
-# School SMIS API
+# Server API
 
-The Server project is the backend for the School SMIS platform. It exposes the application API, enforces tenant-aware access, and coordinates domain modules such as academics, attendance, finance, exams, payroll, HR, and storage.
+This is the backend application for School SMIS. It exposes the API, enforces school-scoped access, and organizes business logic by feature module.
 
-## Architecture overview
+## Tech stack
 
-- Express server with modular route registration
-- Prisma ORM with PostgreSQL
-- Request-scoped tenant context for multi-school isolation
-- Module-based service structure under `src/modules`
-- Shared utilities for audit, ownership, sequencing, and background jobs
+- Node.js + Express
+- PostgreSQL with Prisma ORM
+- JWT-based authentication
+- Vitest for validation and route checks
+- Structured logging and audit hooks
 
-## Project structure
+## Project layout
 
-- `src/` — application source code
-- `src/api/` — router setup and middleware
-- `src/config/` — environment, Prisma, tenant context, tracing, logger configuration
-- `src/modules/` — business domain modules
-- `src/shared/` — common utilities, ownership checks, audit helpers, jobs
-- `prisma/` — Prisma schema, migrations, seed data, database tooling
-- `test/` — validation and integration tests
-- `.env` — local runtime configuration
+- `src/api/` — routes and API middleware
+- `src/config/` — environment, logger, database, and tenant setup
+- `src/modules/` — domain modules such as auth, students, finance, payroll, and HR
+- `src/shared/` — ownership checks, audit utilities, jobs, and shared helpers
+- `prisma/schema/` — module-based Prisma schema split
+- `prisma/migrations/` — Prisma migration history
+- `test/` — validation, smoke, and integration tests
 
-## Module documentation
+## Prisma schema structure
 
-Each domain module has its own README with purpose, ownership, endpoints, authorization rules, and integration notes.
+The monolithic schema was split into the following module files:
 
-- [src/modules/academics/README.md](src/modules/academics/README.md)
-- [src/modules/attendance/README.md](src/modules/attendance/README.md)
-- [src/modules/audit/README.md](src/modules/audit/README.md)
-- [src/modules/auth/README.md](src/modules/auth/README.md)
-- [src/modules/cbc/README.md](src/modules/cbc/README.md)
-- [src/modules/exams/README.md](src/modules/exams/README.md)
-- [src/modules/finance/README.md](src/modules/finance/README.md)
-- [src/modules/humanresource/README.md](src/modules/humanresource/README.md)
-- [src/modules/jobs/README.md](src/modules/jobs/README.md)
-- [src/modules/parents/README.md](src/modules/parents/README.md)
-- [src/modules/payroll/README.md](src/modules/payroll/README.md)
-- [src/modules/schools/README.md](src/modules/schools/README.md)
-- [src/modules/storage/README.md](src/modules/storage/README.md)
-- [src/modules/students/README.md](src/modules/students/README.md)
-- [src/modules/users/README.md](src/modules/users/README.md)
+- `00-base.prisma` — shared enums, root models, and tenant scaffolding
+- `01-auth.prisma` — users, teachers, staff, and auth/session entities
+- `02-students.prisma` — students, parents, and enrollment models
+- `03-academics.prisma` — years, terms, classes, streams, subjects, and timetable
+- `04-attendance-exams-cbc.prisma` — attendance, exams, learning areas, and CBC assessments
+- `05-finance.prisma` — fees, invoices, payments, refunds, and ledger entries
+- `06-payroll-hr.prisma` — payroll, HR records, loans, leave, and contract data
+- `07-file-jobs.prisma` — file uploads and background jobs
 
-## Environment setup
+Prisma is configured to read the `prisma/schema` directory rather than a single `schema.prisma` file.
 
-Create a `.env` file in this directory with the required runtime variables, for example:
+## Authorization model
 
-```env
-NODE_ENV=development
-PORT=4000
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE?schema=public"
-JWT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYOUR_PRIVATE_RSA_KEY\n-----END PRIVATE KEY-----"
-JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\nYOUR_PUBLIC_RSA_KEY\n-----END PUBLIC KEY-----"
-JWT_EXPIRES_IN="10m"
-JWT_ISSUER="school-smis-api"
-JWT_AUDIENCE="school-smis-client"
-```
+The system should enforce this order:
 
-Additional auth, email, storage, or integration variables may be required depending on the environment and deployed features. Generate an RSA key pair with `openssl genrsa -out jwt-private.pem 2048` and `openssl rsa -in jwt-private.pem -pubout -out jwt-public.pem`, then provide the PEM contents through the two JWT variables.
+1. Authentication
+2. School context resolution
+3. Permission authorization
+4. Resource ownership validation
+5. Prisma tenant scoping
+6. PostgreSQL RLS where enabled
 
-Authentication is throttled at multiple layers: IP, email identifier, user, OTP challenge attempts, and OTP resend requests. The defaults allow 5 failed password attempts per account, 10 OTP attempts per challenge, and 3 OTP resends per user and IP within 10 minutes.
+This is intentionally stronger than a role-only model. Permissions such as `students:read`, `fees:approve`, and `payroll:approve` should be checked explicitly at route and service boundaries.
 
-## Local setup
-
-1. Install dependencies:
-
-   ```bash
-   npm install
-   ```
-
-2. Generate the Prisma client:
-
-   ```bash
-   npm run prisma:generate
-   ```
-
-3. Validate the schema:
-
-   ```bash
-   npm run prisma:validate
-   ```
-
-4. Run database migrations in development:
-
-   ```bash
-   npm run prisma:migrate
-   ```
-
-5. Start the API in development mode:
-
-   ```bash
-   npm run dev
-   ```
-
-## Useful scripts
-
-- `npm run start` — start the API in production mode
-- `npm run dev` — start the API with nodemon in development mode
-- `npm run lint` — run ESLint
-- `npm run format` — format the codebase with Prettier
-- `npm run format:check` — check formatting without writing files
-- `npm run prisma:generate` — generate the Prisma client
-- `npm run prisma:migrate` — apply local Prisma migrations
-- `npm run prisma:deploy` — deploy pending migrations in production
-- `npm run prisma:validate` — validate the Prisma schema
-- `npm run prisma:push:local` — push schema changes directly to a local development database; never use this against staging or production
-- `npm run prisma:studio` — open Prisma Studio
-- `npm run prisma:format` — format the Prisma schema
-- `npm test` — run the server test suite
-
-## Testing
-
-The project includes Vitest-based verification for validation, smoke checks, and integration paths.
+## Common commands
 
 ```bash
+npm install
+npm run prisma:generate
+npm run prisma:validate
+npm run prisma:migrate
 npm test
+npm run dev
 ```
-
-## Database change policy
-
-- Development: `npm run prisma:migrate`
-- CI and production: `npm run prisma:deploy`
-- Local prototyping only: `npm run prisma:push:local`
-
-Production databases must be changed through reviewed Prisma migrations. Do not run `prisma db push` against production.
 
 ## Security and tenancy notes
 
-The backend is designed for multi-tenant operation. School-scoped access is enforced through request context, Prisma tenant scoping, and database-level cross-school ownership triggers. National and employee identity identifiers are scoped to a school with composite unique constraints.
-
-PostgreSQL Row Level Security is planned as an additional enforcement layer. It should be enabled together with a request transaction wrapper that executes `SET LOCAL app.current_school_id` on the same database connection; enabling policies before that plumbing exists would block valid requests or create unsafe pooled-connection state.
-
-Access tokens use `RS256`: the API signs with `JWT_PRIVATE_KEY`, while API services verify with `JWT_PUBLIC_KEY`. Keep the private key only in the signing service and distribute the public key to verification-only services. In production, both keys are required.
-
-## License
-
-MIT
+- Auth and OTP endpoints should be protected with IP and user-level throttling.
+- School-scoped access must always be validated before mutating or reading tenant data.
+- Ownership checks are separate from tenant checks and should remain explicit.
+- Background jobs and impersonation actions should remain fully auditable.

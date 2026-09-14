@@ -93,13 +93,18 @@ describe('school ownership', () => {
 describe('permissions', () => {
     it('maps role permissions to resource actions', () => {
         expect(userHasPermission({ role: 'BURSAR' }, 'fees:refund')).toBe(true);
+        expect(userHasPermission({ role: 'BURSAR' }, 'fees:approve')).toBe(true);
         expect(userHasPermission({ role: 'BURSAR' }, 'payroll:process')).toBe(false);
-        expect(userHasPermission({ role: 'MANAGER' }, 'payroll:process')).toBe(false);
+        expect(userHasPermission({ role: 'MANAGER' }, 'payroll:approve')).toBe(true);
+        expect(userHasPermission({ role: 'MANAGER' }, 'payroll:process')).toBe(true);
     });
 
     it('expands explicit staff module access into permissions', () => {
         expect(
             userHasPermission({ role: 'STAFF', modulePermissions: ['STUDENTS'] }, 'students:create'),
+        ).toBe(true);
+        expect(
+            userHasPermission({ role: 'STAFF', modulePermissions: ['PAYROLL'] }, 'payroll:approve'),
         ).toBe(true);
         expect(
             userHasPermission({ role: 'STAFF', modulePermissions: ['STUDENTS'] }, 'fees:create'),

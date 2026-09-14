@@ -1,0 +1,295 @@
+model AcademicYear {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  name      String
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  isCurrent Boolean  @default(false)
+
+  terms       Term[]
+  enrollments Enrollment[]
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+  @@map("academic_years")
+}
+
+model Term {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  name           String
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id])
+  startDate      DateTime     @db.Date
+  endDate        DateTime     @db.Date
+
+  exams                 Exam[]
+  feeStructures         FeeStructure[]
+  invoices              Invoice[]
+  competencyAssessments CompetencyAssessment[]
+  assessments          Assessment[]
+  learnerAssessments    LearnerAssessment[]
+
+  @@unique([academicYearId, name])
+  @@index([schoolId])
+  @@map("terms")
+}
+
+enum Curriculum {
+  KCSE
+  CBC
+  CAMBRIDGE
+  IB
+}
+
+enum CurriculumFrameworkStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+  LEGACY
+}
+
+model CurriculumFramework {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  code        String
+  name        String
+  version     String?
+  startYear   Int?
+  endYear     Int?
+  status      CurriculumFrameworkStatus @default(ACTIVE)
+  isDefault   Boolean                   @default(false)
+  description String?
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+
+  educationLevels EducationLevel[]
+  grades          Grade[]
+  learningAreas   LearningArea[]
+  assessmentScales AssessmentScale[]
+  pathways        Pathway[]
+
+  @@unique([schoolId, code])
+  @@index([schoolId])
+  @@map("curriculum_frameworks")
+}
+
+model EducationLevel {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  curriculumFrameworkId String
+  curriculumFramework   CurriculumFramework @relation(fields: [curriculumFrameworkId], references: [id])
+
+  name      String
+  code      String
+  sortOrder Int      @default(0)
+  parentId  String?
+  parent    EducationLevel?  @relation("EducationLevelHierarchy", fields: [parentId], references: [id])
+  children  EducationLevel[] @relation("EducationLevelHierarchy")
+
+  grades Grade[]
+
+  @@unique([curriculumFrameworkId, code])
+  @@index([schoolId])
+  @@map("education_levels")
+}
+
+model Grade {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  curriculumFrameworkId String
+  curriculumFramework   CurriculumFramework @relation(fields: [curriculumFrameworkId], references: [id])
+  educationLevelId      String
+  educationLevel        EducationLevel      @relation(fields: [educationLevelId], references: [id])
+
+  name      String
+  code      String
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+
+  streams     Stream[]
+  enrollments Enrollment[]
+
+  @@unique([curriculumFrameworkId, code])
+  @@index([schoolId])
+  @@map("grades")
+}
+
+model Pathway {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  curriculumFrameworkId String
+  curriculumFramework   CurriculumFramework @relation(fields: [curriculumFrameworkId], references: [id])
+
+  code        String
+  name        String
+  description String?
+  active      Boolean @default(true)
+
+  learningAreas   PathwayLearningArea[]
+  learnerPathways LearnerPathway[]
+  enrollments     Enrollment[]
+
+  @@unique([curriculumFrameworkId, code])
+  @@index([schoolId])
+  @@map("pathways")
+}
+
+model PathwayLearningArea {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  pathwayId      String
+  pathway        Pathway     @relation(fields: [pathwayId], references: [id])
+  learningAreaId String
+  learningArea   LearningArea @relation(fields: [learningAreaId], references: [id])
+
+  required Boolean @default(false)
+  elective Boolean @default(false)
+  cluster  String?
+
+  @@unique([pathwayId, learningAreaId])
+  @@index([schoolId])
+  @@map("pathway_learning_areas")
+}
+
+model LearnerPathway {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  studentId String
+  student   Student @relation(fields: [studentId], references: [id])
+  pathwayId String
+  pathway   Pathway @relation(fields: [pathwayId], references: [id])
+
+  academicYearId String?
+  status         String   @default("ACTIVE")
+  selectedAt     DateTime @default(now())
+
+  @@unique([studentId, pathwayId])
+  @@index([schoolId])
+  @@map("learner_pathways")
+}
+
+model ClassLevel {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  name          String
+  curriculum    Curriculum @default(KCSE)
+  streams       Stream[]
+  feeStructures FeeStructure[]
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+  @@map("class_levels")
+}
+
+model Stream {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  name         String
+  classLevelId String
+  classLevel   ClassLevel @relation(fields: [classLevelId], references: [id])
+  gradeId      String?
+  grade        Grade?     @relation(fields: [gradeId], references: [id])
+
+  enrollments    Enrollment[]
+  classSubjects  ClassSubject[]
+  timetableSlots TimetableSlot[]
+
+  @@unique([classLevelId, name])
+  @@index([schoolId])
+  @@map("streams")
+}
+
+model Subject {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  name       String
+  code       String
+  curriculum Curriculum @default(KCSE)
+
+  teacherSubjects TeacherSubject[]
+  classSubjects   ClassSubject[]
+  exams           Exam[]
+
+  @@unique([schoolId, code])
+  @@index([schoolId])
+  @@map("subjects")
+}
+
+model TeacherSubject {
+  teacherId String
+  subjectId String
+  teacher   Teacher @relation(fields: [teacherId], references: [id])
+  subject   Subject @relation(fields: [subjectId], references: [id])
+
+  @@id([teacherId, subjectId])
+  @@map("teacher_subjects")
+}
+
+model ClassSubject {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  streamId  String
+  stream    Stream  @relation(fields: [streamId], references: [id])
+  subjectId String
+  subject   Subject @relation(fields: [subjectId], references: [id])
+  teacherId String
+  teacher   Teacher @relation(fields: [teacherId], references: [id])
+
+  timetableSlots TimetableSlot[]
+
+  @@unique([streamId, subjectId])
+  @@index([schoolId])
+  @@map("class_subjects")
+}
+
+enum Weekday {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+}
+
+model TimetableSlot {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  streamId       String
+  stream         Stream       @relation(fields: [streamId], references: [id])
+  classSubjectId String
+  classSubject   ClassSubject @relation(fields: [classSubjectId], references: [id])
+  day            Weekday
+  startTime      DateTime     @db.Time
+  endTime        DateTime     @db.Time
+  room           String?
+
+  @@index([schoolId])
+  @@map("timetable_slots")
+}

@@ -1,46 +1,28 @@
 # Auth Module
 
 ## Purpose
-The auth module manages identity, session lifecycle, impersonation, password handling, and user authentication for the school application.
+The auth module handles authentication, session management, OTP flows, password reset, impersonation, and account lifecycle concerns.
 
-## Responsibilities
-- User login, logout, and refresh-token handling
-- Password reset and OTP flows
-- Session validation and impersonation authorization
-- Current-user profile retrieval
-- Support for school-scoped user identity and platform operator access
-
-## Database models owned
+## Key models
 - `User`
 - `RefreshSession`
 - `PasswordResetOtp`
 - `ActivationToken`
+- `StaffModuleAccess`
 
-## API endpoints
-- Login and credential-based authentication
-- Logout and refresh flows
-- Password reset and OTP endpoints
-- Current-user profile endpoint
-- Optional support/impersonation flows
+## Responsibilities
+- Validate credentials and issue signed sessions
+- Manage refresh-token families and session invalidation
+- Handle password reset and OTP verification
+- Support impersonation and target-user auditing
 
-## Authorization requirements
-- Public auth endpoints are intentionally open
-- All protected routes require a valid JWT and session context
-- Impersonation is restricted to approved actors and eligible target users
-- School-scoped actions must respect the authenticated user’s tenant context
+## Authorization
+- Public auth routes are intentionally open
+- Protected routes require valid JWT verification and a valid session record
+- IP-level throttling and user/account throttling should both remain active for login and OTP flows
+- The auth layer should not replace permission checks on protected business routes
 
-## Transactions
-- Token/session updates should be transactional when invalidating prior sessions
-- Password updates must atomically replace password hashes and revoke active sessions
-- Login and refresh flows should preserve single-device session integrity
-
-## Events
-- Login success/failure
-- Password change/reset
-- Logout and session revocation
-- Impersonation started or ended
-
-## External integrations
-- JWT-based auth tokens
-- Google OAuth verification
-- Email delivery for OTPs and password reset notices
+## Security notes
+- OTP and login attempts are limited at both IP and user/account levels
+- Session ownership is validated before each authenticated call
+- Platform and school-level actor rules must remain explicit and auditable

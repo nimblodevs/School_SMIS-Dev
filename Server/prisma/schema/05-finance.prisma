@@ -1,0 +1,272 @@
+enum InvoiceStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+}
+
+enum AllocationStatus {
+  ACTIVE
+  REVERSED
+}
+
+enum CreditNoteStatus {
+  ISSUED
+  PARTIALLY_APPLIED
+  APPLIED
+  REFUNDED
+  VOIDED
+}
+
+enum RefundStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum CreditNoteReason {
+  OVERPAYMENT
+  REFUND
+  REVERSAL
+  ADJUSTMENT
+  WRONG_INVOICE
+  DUPLICATE
+  CHARGEBACK
+}
+
+model FeeStructure {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  termId       String
+  term         Term       @relation(fields: [termId], references: [id])
+  classLevelId String
+  classLevel   ClassLevel @relation(fields: [classLevelId], references: [id])
+  amount       Decimal    @db.Decimal(12, 2)
+  description  String?
+
+  @@unique([termId, classLevelId])
+  @@index([schoolId])
+  @@map("fee_structures")
+}
+
+model Invoice {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  studentId    String
+  student      Student       @relation(fields: [studentId], references: [id])
+  enrollmentId String
+  enrollment   Enrollment    @relation(fields: [enrollmentId], references: [id])
+  termId       String
+  term         Term          @relation(fields: [termId], references: [id])
+  amountDue    Decimal       @db.Decimal(12, 2)
+  amountPaid   Decimal       @default(0) @db.Decimal(12, 2)
+  status       InvoiceStatus @default(UNPAID)
+  dueDate      DateTime      @db.Date
+  createdAt    DateTime      @default(now())
+
+  payments              Payment[]
+  paymentAllocations    PaymentAllocation[]
+  creditNotes           CreditNote[]
+  creditNoteApplications CreditNoteApplication[]
+
+  @@unique([studentId, termId])
+  @@index([schoolId])
+  @@index([status, dueDate])
+  @@map("invoices")
+}
+
+enum PaymentMethod {
+  MPESA
+  CASH
+  CHEQUE
+  BANK_DEPOSIT
+  BANK_TRANSFER
+  CARD
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+model Payment {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  invoiceId String?
+  invoice   Invoice?      @relation(fields: [invoiceId], references: [id])
+  studentId String?
+  student   Student?      @relation(fields: [studentId], references: [id])
+  amount    Decimal       @db.Decimal(12, 2)
+  method    PaymentMethod
+  status    PaymentStatus @default(PENDING)
+
+  requiresAllocation Boolean   @default(false)
+  allocatedAt        DateTime?
+
+  mpesaReceipt      String? @unique
+  mpesaPhone        String?
+  checkoutRequestId String? @unique
+
+  reference    String?
+  recordedById String?
+  recordedBy   User?   @relation(fields: [recordedById], references: [id])
+  allocations  PaymentAllocation[]
+  creditNotes  CreditNote[]
+  refunds      PaymentRefund[]
+  notes        String?
+
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([schoolId, status])
+  @@index([schoolId, requiresAllocation])
+  @@map("payments")
+}
+
+model PaymentAllocation {
+  id        String   @id @default(uuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+  paymentId String
+  payment   Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoiceId String
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id])
+  amount    Decimal  @db.Decimal(12, 2)
+  invoiceBalanceBefore Decimal @db.Decimal(12, 2)
+  invoiceBalanceAfter  Decimal @db.Decimal(12, 2)
+  status              AllocationStatus @default(ACTIVE)
+  reversedAt          DateTime?
+  reversedBy          String?
+  reversalReason      String?
+  createdById         String?
+  createdAt           DateTime @default(now())
+
+  @@unique([paymentId, invoiceId])
+  @@index([schoolId])
+  @@index([invoiceId])
+  @@map("payment_allocations")
+}
+
+model CreditNote {
+  id        String @id @default(uuid())
+  schoolId  String
+  school    School @relation(fields: [schoolId], references: [id])
+  studentId String
+  student   Student @relation(fields: [studentId], references: [id])
+  invoiceId String?
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id])
+  paymentId String?
+  payment   Payment? @relation(fields: [paymentId], references: [id])
+  creditNo  String @unique
+  amount    Decimal @db.Decimal(12, 2)
+  reason    CreditNoteReason
+  status    CreditNoteStatus @default(ISSUED)
+  notes     String?
+  createdById String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  applications CreditNoteApplication[]
+  refunds      PaymentRefund[]
+
+  @@index([schoolId, studentId, status])
+  @@index([invoiceId])
+  @@index([paymentId])
+  @@map("credit_notes")
+}
+
+model CreditNoteApplication {
+  id        String @id @default(uuid())
+  schoolId  String
+  school    School @relation(fields: [schoolId], references: [id])
+  creditNoteId String
+  creditNote CreditNote @relation(fields: [creditNoteId], references: [id], onDelete: Cascade)
+  invoiceId String?
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id])
+  amount    Decimal @db.Decimal(12, 2)
+  invoiceBalanceBefore Decimal @db.Decimal(12, 2)
+  invoiceBalanceAfter  Decimal @db.Decimal(12, 2)
+  status         AllocationStatus @default(ACTIVE)
+  reversedAt     DateTime?
+  reversedBy     String?
+  reversalReason String?
+  createdById    String?
+  createdAt DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([creditNoteId, status])
+  @@index([invoiceId, status])
+  @@map("credit_note_applications")
+}
+
+model PaymentRefund {
+  id        String @id @default(uuid())
+  schoolId  String
+  school    School @relation(fields: [schoolId], references: [id])
+  creditNoteId String? @unique
+  creditNote CreditNote? @relation(fields: [creditNoteId], references: [id])
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id])
+  studentId String
+  amount    Decimal @db.Decimal(12, 2)
+  method    PaymentMethod
+  status    RefundStatus @default(PENDING)
+  reference String?
+  failureReason String?
+  requestedById String?
+  requestedAt DateTime @default(now())
+  processedById String?
+  processedAt DateTime?
+  completedAt DateTime?
+
+  @@index([schoolId, status])
+  @@index([paymentId])
+  @@index([studentId, status])
+  @@map("payment_refunds")
+}
+
+model IdempotencyKey {
+  id        String @id @default(uuid())
+  schoolId  String
+  school    School @relation(fields: [schoolId], references: [id])
+  scope     String
+  key       String
+  resultId  String
+  createdAt DateTime @default(now())
+
+  @@unique([schoolId, scope, key])
+  @@index([createdAt])
+  @@map("idempotency_keys")
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+model LedgerEntry {
+  id          String   @id @default(uuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id])
+  accountCode String
+  direction   LedgerDirection
+  amount      Decimal  @db.Decimal(14, 2)
+  reference   String?
+  narration   String
+  entryDate   DateTime @db.Date
+  createdAt   DateTime @default(now())
+
+  @@index([schoolId, accountCode, entryDate])
+  @@index([reference])
+  @@map("ledger_entries")
+}

@@ -1,0 +1,219 @@
+model User {
+  id                 String  @id @default(uuid())
+  username           String  @unique
+  email              String  @unique
+  phone              String  @unique
+  passwordHash       String
+  mustChangePassword Boolean @default(true)
+  authProvider       String  @default("LOCAL")
+  googleSubject      String? @unique
+  role               Role
+
+  schoolId String?
+  school   School? @relation(fields: [schoolId], references: [id])
+
+  isActive            Boolean   @default(true)
+  currentSessionId    String?
+  lastLoginAt         DateTime?
+  lastLoginIp         String?
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  teacher           Teacher?
+  student           Student?
+  parent            Parent?
+  staff             Staff?
+  staffModuleAccess StaffModuleAccess[]
+
+  markedAttendances          Attendance[]
+  assessedCompetencies       CompetencyAssessment[]
+  assessedLearnerAssessments LearnerAssessment[] @relation("LearnerAssessmentAssessor")
+  grantedModuleAccess         StaffModuleAccess[] @relation("ModuleAccessGranter")
+  recordedPayments      Payment[]
+  approvedLeaveRequests LeaveRequest[]
+  processedPayrollRuns  PayrollRun[]
+  initiatedResignations ResignationRecord[]    @relation("ResignationInitiatedBy")
+  reviewedResignations  ResignationRecord[]    @relation("ResignationReviewedBy")
+  refreshSessions       RefreshSession[]
+  passwordResetOtps     PasswordResetOtp[]
+  activationTokens      ActivationToken[]
+
+  @@index([schoolId])
+  @@map("users")
+}
+
+model EmployeeNumber {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  employeeNo String
+  ownerKey   String @unique
+
+  teacher Teacher? @relation("EmployeeNumberTeacher")
+  staff   Staff?   @relation("EmployeeNumberStaff")
+
+  @@unique([schoolId, employeeNo])
+  @@map("employee_numbers")
+}
+
+model Teacher {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+  userId   String @unique
+  user     User   @relation(fields: [userId], references: [id])
+
+  employeeKey String         @unique
+  employeeNo  EmployeeNumber @relation("EmployeeNumberTeacher", fields: [employeeKey], references: [ownerKey])
+
+  nssfNumber       String
+  kraPin           String
+  shaNumber        String
+  nationalIdNumber String
+  passportNumber   String? @unique
+
+  jobGroupId String?
+  jobGroup   JobGroup? @relation(fields: [jobGroupId], references: [id])
+
+  firstName String
+  middleName String?
+  lastName  String
+  hireDate  DateTime
+  createdAt DateTime @default(now())
+
+  subjects            TeacherSubject[]
+  classSubjects       ClassSubject[]
+  salaryStructures    SalaryStructure[]
+  payslips            Payslip[]
+  employmentContracts EmploymentContract[]
+  leaveBalances       LeaveBalance[]
+  leaveRequests       LeaveRequest[]
+  customDeductions    CustomDeduction[]
+  bankAccounts        BankAccount[]
+  employeeSalaryLoans EmployeeSalaryLoan[]
+  loanRequests        EmployeeLoanRequest[]
+  resignationRecords  ResignationRecord[]
+
+  @@index([schoolId])
+  @@unique([schoolId, nssfNumber])
+  @@unique([schoolId, kraPin])
+  @@unique([schoolId, shaNumber])
+  @@unique([schoolId, nationalIdNumber])
+  @@map("teachers")
+}
+
+model Staff {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+  userId   String @unique
+  user     User   @relation(fields: [userId], references: [id])
+
+  employeeKey String         @unique
+  employeeNo  EmployeeNumber @relation("EmployeeNumberStaff", fields: [employeeKey], references: [ownerKey])
+
+  nssfNumber       String
+  kraPin           String
+  shaNumber        String
+  nationalIdNumber String
+  passportNumber   String? @unique
+
+  jobGroupId String?
+  jobGroup   JobGroup? @relation(fields: [jobGroupId], references: [id])
+
+  firstName  String
+  middleName String?
+  lastName   String
+  department String
+  jobTitle   String
+  hireDate   DateTime
+
+  salaryStructures    SalaryStructure[]
+  payslips            Payslip[]
+  employmentContracts EmploymentContract[]
+  leaveBalances       LeaveBalance[]
+  leaveRequests       LeaveRequest[]
+  customDeductions    CustomDeduction[]
+  bankAccounts        BankAccount[]
+  employeeSalaryLoans EmployeeSalaryLoan[]
+  loanRequests        EmployeeLoanRequest[]
+  resignationRecords  ResignationRecord[]
+
+  @@index([schoolId])
+  @@unique([schoolId, nssfNumber])
+  @@unique([schoolId, kraPin])
+  @@unique([schoolId, shaNumber])
+  @@unique([schoolId, nationalIdNumber])
+  @@map("staff")
+}
+
+model StaffModuleAccess {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  userId String
+  user   User        @relation(fields: [userId], references: [id])
+  module StaffModule
+
+  grantedById String
+  grantedBy   User     @relation("ModuleAccessGranter", fields: [grantedById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, module])
+  @@index([schoolId])
+  @@map("staff_module_access")
+}
+
+model ActivationToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  isUsed    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+  @@map("activation_tokens")
+}
+
+model RefreshSession {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique
+  familyId     String
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  reusedAt     DateTime?
+  replacedById String?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId, revokedAt])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("refresh_sessions")
+}
+
+model PasswordResetOtp {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash   String
+  purpose    String    @default("PASSWORD_RESET")
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int       @default(0)
+  isResend   Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+  @@map("password_reset_otps")
+}
