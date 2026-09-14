@@ -1,26 +1,51 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { AuthController } from './auth.controller.js';
 import { authenticate } from '../../api/middlewares/authMiddleware.js';
 import { authorizeRoles } from '../../api/middlewares/roleMiddleware.js';
+import { env } from '../../config/env.js';
 
 const router = Router();
-const loginLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 10,
+
+const loginIpLimiter = rateLimit({
+    windowMs: env.LOGIN_RATE_LIMIT_WINDOW_MINUTES * 60 * 1000,
+    limit: env.LOGIN_RATE_LIMIT_PER_IP,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     message: { success: false, message: 'Too many login attempts. Try again later.' },
 });
+const loginIdentifierLimiter = rateLimit({
+    windowMs: env.LOGIN_RATE_LIMIT_WINDOW_MINUTES * 60 * 1000,
+    limit: env.LOGIN_RATE_LIMIT_PER_IDENTIFIER,
+    keyGenerator: (req) => `email:${req.body?.email?.trim().toLowerCase() || ipKeyGenerator(req.ip)}`,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    message: { success: false, message: 'Too many login attempts for this account.' },
+});
+const otpUserLimiter = rateLimit({
+    windowMs: env.LOGIN_RATE_LIMIT_WINDOW_MINUTES * 60 * 1000,
+    limit: env.OTP_RATE_LIMIT_PER_USER,
+    keyGenerator: (req) => `user:${req.body?.userId || ipKeyGenerator(req.ip)}`,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    message: { success: false, message: 'Too many OTP attempts. Try again later.' },
+});
+const resendIpLimiter = rateLimit({
+    windowMs: env.OTP_RESEND_WINDOW_MINUTES * 60 * 1000,
+    limit: env.OTP_RESEND_LIMIT,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    message: { success: false, message: 'Too many OTP resends. Try again later.' },
+});
 
 // Public routes
-router.post('/login', loginLimiter, AuthController.login);
-router.post('/verify-login-otp', loginLimiter, AuthController.verifyLoginOtp);
-router.post('/resend-login-otp', loginLimiter, AuthController.resendLoginOtp);
-router.post('/google', loginLimiter, AuthController.googleLogin);
-router.post('/forgot-password', loginLimiter, AuthController.forgotPassword);
-router.post('/verify-otp', loginLimiter, AuthController.verifyOtp);
-router.post('/reset-password', loginLimiter, AuthController.resetPassword);
+router.post('/login', loginIpLimiter, loginIdentifierLimiter, AuthController.login);
+router.post('/verify-login-otp', loginIpLimiter, otpUserLimiter, AuthController.verifyLoginOtp);
+router.post('/resend-login-otp', resendIpLimiter, otpUserLimiter, AuthController.resendLoginOtp);
+router.post('/google', loginIpLimiter, AuthController.googleLogin);
+router.post('/forgot-password', loginIpLimiter, loginIdentifierLimiter, AuthController.forgotPassword);
+router.post('/verify-otp', loginIpLimiter, otpUserLimiter, AuthController.verifyOtp);
+router.post('/reset-password', loginIpLimiter, otpUserLimiter, AuthController.resetPassword);
 router.post('/refresh', AuthController.refresh);
 
 // Authenticated routes

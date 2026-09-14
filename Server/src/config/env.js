@@ -6,14 +6,16 @@ function normalizePem(value) {
     return value?.replaceAll('\\n', '\n');
 }
 
-const testKeyPair =
-    process.env.NODE_ENV === 'test'
-        ? generateKeyPairSync('rsa', {
-            modulusLength: 2048,
-            privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-            publicKeyEncoding: { type: 'spki', format: 'pem' },
-        })
-        : null;
+let testKeyPair;
+
+function getTestKeyPair() {
+    testKeyPair ??= generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+        publicKeyEncoding: { type: 'spki', format: 'pem' },
+    });
+    return testKeyPair;
+}
 
 const envSchema = z.object({
     PORT: z.coerce.number().int().min(1).max(65535).default(5000),
@@ -29,6 +31,13 @@ const envSchema = z.object({
     TRUST_PROXY: z.coerce.boolean().default(false),
     LOGIN_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
     LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
+    LOGIN_RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
+    LOGIN_RATE_LIMIT_PER_IP: z.coerce.number().int().min(1).max(100).default(10),
+    LOGIN_RATE_LIMIT_PER_IDENTIFIER: z.coerce.number().int().min(1).max(100).default(5),
+    OTP_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(10),
+    OTP_RATE_LIMIT_PER_USER: z.coerce.number().int().min(1).max(100).default(10),
+    OTP_RESEND_LIMIT: z.coerce.number().int().min(1).max(20).default(3),
+    OTP_RESEND_WINDOW_MINUTES: z.coerce.number().int().min(1).max(1440).default(10),
     LOG_LEVEL: z
         .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
         .default('info'),
@@ -64,5 +73,18 @@ if (env.NODE_ENV !== 'test' && (!env.JWT_PRIVATE_KEY || !env.JWT_PUBLIC_KEY)) {
     process.exit(1);
 }
 
-env.JWT_PRIVATE_KEY = normalizePem(env.JWT_PRIVATE_KEY) ?? testKeyPair?.privateKey;
-env.JWT_PUBLIC_KEY = normalizePem(env.JWT_PUBLIC_KEY) ?? testKeyPair?.publicKey;
+if (env.NODE_ENV === 'test') {
+    Object.defineProperties(env, {
+        JWT_PRIVATE_KEY: {
+            configurable: true,
+            get: () => normalizePem(parsed.data.JWT_PRIVATE_KEY) ?? getTestKeyPair().privateKey,
+        },
+        JWT_PUBLIC_KEY: {
+            configurable: true,
+            get: () => normalizePem(parsed.data.JWT_PUBLIC_KEY) ?? getTestKeyPair().publicKey,
+        },
+    });
+} else {
+    env.JWT_PRIVATE_KEY = normalizePem(env.JWT_PRIVATE_KEY);
+    env.JWT_PUBLIC_KEY = normalizePem(env.JWT_PUBLIC_KEY);
+}

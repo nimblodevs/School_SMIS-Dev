@@ -2,13 +2,8 @@ import { z } from 'zod';
 
 export const loginSchema = z
     .object({
-        username: z.string().trim().min(3).max(100).optional(),
-        email: z.string().trim().toLowerCase().email('Invalid email address format').optional(),
+        email: z.string().trim().toLowerCase().email('Invalid email address format'),
         password: z.string().min(10, 'Password must be at least 10 characters'),
-    })
-    .refine((value) => Boolean(value.username || value.email), {
-        message: 'Username or email is required',
-        path: ['username'],
     });
 
 export const loginOtpSchema = z.object({

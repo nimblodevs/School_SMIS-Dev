@@ -231,10 +231,10 @@ model Teacher {
   employeeKey String         @unique
   employeeNo  EmployeeNumber @relation("EmployeeNumberTeacher", fields: [employeeKey], references: [ownerKey])
 
-  nssfNumber String @unique
-  kraPin     String @unique
-  shaNumber  String @unique
-  nationalIdNumber String @unique
+  nssfNumber String
+  kraPin     String
+  shaNumber  String
+  nationalIdNumber String
   passportNumber   String? @unique
 
   jobGroupId String?
@@ -260,6 +260,10 @@ model Teacher {
   resignationRecords  ResignationRecord[]
 
   @@index([schoolId])
+  @@unique([schoolId, nssfNumber])
+  @@unique([schoolId, kraPin])
+  @@unique([schoolId, shaNumber])
+  @@unique([schoolId, nationalIdNumber])
   @@map("teachers")
 }
 
@@ -273,10 +277,10 @@ model Staff {
   employeeKey String         @unique
   employeeNo  EmployeeNumber @relation("EmployeeNumberStaff", fields: [employeeKey], references: [ownerKey])
 
-  nssfNumber String @unique
-  kraPin     String @unique
-  shaNumber  String @unique
-  nationalIdNumber String @unique
+  nssfNumber String
+  kraPin     String
+  shaNumber  String
+  nationalIdNumber String
   passportNumber   String? @unique
 
   jobGroupId String?
@@ -301,6 +305,10 @@ model Staff {
   resignationRecords  ResignationRecord[]
 
   @@index([schoolId])
+  @@unique([schoolId, nssfNumber])
+  @@unique([schoolId, kraPin])
+  @@unique([schoolId, shaNumber])
+  @@unique([schoolId, nationalIdNumber])
   @@map("staff")
 }
 
@@ -321,7 +329,7 @@ model Student {
   firstName     String
   middleName    String?
   lastName      String
-  nationalIdNumber       String  @unique
+  nationalIdNumber       String
   birthCertificateNumber String  @unique
   passportNumber         String? @unique
   dateOfBirth   DateTime @db.Date
@@ -340,6 +348,7 @@ model Student {
   creditNotes           CreditNote[]
 
   @@unique([schoolId, admissionNo])
+  @@unique([schoolId, nationalIdNumber])
   @@index([schoolId])
   @@map("students")
 }
@@ -363,13 +372,14 @@ model Parent {
   phone     String @unique
   email     String? @unique
   relation  ParentRelation
-  nationalIdNumber String @unique
+  nationalIdNumber String
   passportNumber   String? @unique
   createdAt DateTime @default(now())
 
   students StudentParent[]
 
   @@index([schoolId])
+  @@unique([schoolId, nationalIdNumber])
   @@map("parents")
 }
 
@@ -935,6 +945,7 @@ enum AuditAction {
   DELETE
   AUTH_LOGIN_SUCCESS
   AUTH_LOGIN_FAILED
+  AUTH_REFRESH_TOKEN_REUSE
   AUTH_LOGOUT
   PASSWORD_CHANGED
   PASSWORD_CHANGE_FAILED
@@ -976,8 +987,10 @@ model RefreshSession {
   userId       String
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   tokenHash    String    @unique
+  familyId     String
   expiresAt    DateTime
   revokedAt    DateTime?
+  reusedAt     DateTime?
   replacedById String?
   ipAddress    String?
   userAgent    String?
@@ -985,6 +998,7 @@ model RefreshSession {
   updatedAt    DateTime  @updatedAt
 
   @@index([userId, revokedAt])
+  @@index([familyId])
   @@index([expiresAt])
   @@map("refresh_sessions")
 }
@@ -998,6 +1012,7 @@ model PasswordResetOtp {
   expiresAt  DateTime
   consumedAt DateTime?
   attempts   Int       @default(0)
+  isResend   Boolean   @default(false)
   createdAt  DateTime  @default(now())
 
   @@index([userId, expiresAt])

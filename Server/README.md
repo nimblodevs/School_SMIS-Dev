@@ -58,6 +58,8 @@ JWT_AUDIENCE="school-smis-client"
 
 Additional auth, email, storage, or integration variables may be required depending on the environment and deployed features. Generate an RSA key pair with `openssl genrsa -out jwt-private.pem 2048` and `openssl rsa -in jwt-private.pem -pubout -out jwt-public.pem`, then provide the PEM contents through the two JWT variables.
 
+Authentication is throttled at multiple layers: IP, email identifier, user, OTP challenge attempts, and OTP resend requests. The defaults allow 5 failed password attempts per account, 10 OTP attempts per challenge, and 3 OTP resends per user and IP within 10 minutes.
+
 ## Local setup
 
 1. Install dependencies:
@@ -78,7 +80,7 @@ Additional auth, email, storage, or integration variables may be required depend
    npm run prisma:validate
    ```
 
-4. Run database migrations:
+4. Run database migrations in development:
 
    ```bash
    npm run prisma:migrate
@@ -101,7 +103,7 @@ Additional auth, email, storage, or integration variables may be required depend
 - `npm run prisma:migrate` — apply local Prisma migrations
 - `npm run prisma:deploy` — deploy pending migrations in production
 - `npm run prisma:validate` — validate the Prisma schema
-- `npm run prisma:push` — push schema changes directly to the database
+- `npm run prisma:push:local` — push schema changes directly to a local development database; never use this against staging or production
 - `npm run prisma:studio` — open Prisma Studio
 - `npm run prisma:format` — format the Prisma schema
 - `npm test` — run the server test suite
@@ -114,9 +116,19 @@ The project includes Vitest-based verification for validation, smoke checks, and
 npm test
 ```
 
+## Database change policy
+
+- Development: `npm run prisma:migrate`
+- CI and production: `npm run prisma:deploy`
+- Local prototyping only: `npm run prisma:push:local`
+
+Production databases must be changed through reviewed Prisma migrations. Do not run `prisma db push` against production.
+
 ## Security and tenancy notes
 
-The backend is designed for multi-tenant operation. School-scoped access is enforced through request context and Prisma tenant scoping rather than relying on ad hoc filters in individual handlers.
+The backend is designed for multi-tenant operation. School-scoped access is enforced through request context, Prisma tenant scoping, and database-level cross-school ownership triggers. National and employee identity identifiers are scoped to a school with composite unique constraints.
+
+PostgreSQL Row Level Security is planned as an additional enforcement layer. It should be enabled together with a request transaction wrapper that executes `SET LOCAL app.current_school_id` on the same database connection; enabling policies before that plumbing exists would block valid requests or create unsafe pooled-connection state.
 
 Access tokens use `RS256`: the API signs with `JWT_PRIVATE_KEY`, while API services verify with `JWT_PUBLIC_KEY`. Keep the private key only in the signing service and distribute the public key to verification-only services. In production, both keys are required.
 

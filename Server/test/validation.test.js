@@ -6,15 +6,10 @@ import {
 } from '../src/modules/parents/parents.validation.js';
 import { executePayrollSchema } from '../src/modules/payroll/payroll.validation.js';
 import { resolveSchoolId } from '../src/shared/ownership.js';
+import { userHasPermission } from '../src/api/middlewares/roleMiddleware.js';
 
 describe('authentication validation', () => {
-    it('accepts either a username or an email', () => {
-        expect(
-            loginSchema.safeParse({
-                username: 'admin',
-                password: 'long-enough-password',
-            }).success,
-        ).toBe(true);
+    it('accepts email and password', () => {
         expect(
             loginSchema.safeParse({
                 email: 'admin@example.com',
@@ -23,7 +18,16 @@ describe('authentication validation', () => {
         ).toBe(true);
     });
 
-    it('rejects login without an account identifier', () => {
+    it('rejects username-only login', () => {
+        expect(
+            loginSchema.safeParse({
+                username: 'admin',
+                password: 'long-enough-password',
+            }).success,
+        ).toBe(false);
+    });
+
+    it('rejects login without an email', () => {
         expect(loginSchema.safeParse({ password: 'long-enough-password' }).success).toBe(false);
     });
 });
@@ -83,5 +87,22 @@ describe('school ownership', () => {
         expect(resolveSchoolId(actor)).toBe('school-a');
         expect(resolveSchoolId(actor, 'school-a')).toBe('school-a');
         expect(() => resolveSchoolId(actor, 'school-b')).toThrow('differs from the selected tenant');
+    });
+});
+
+describe('permissions', () => {
+    it('maps role permissions to resource actions', () => {
+        expect(userHasPermission({ role: 'BURSAR' }, 'fees:refund')).toBe(true);
+        expect(userHasPermission({ role: 'BURSAR' }, 'payroll:process')).toBe(false);
+        expect(userHasPermission({ role: 'MANAGER' }, 'payroll:process')).toBe(false);
+    });
+
+    it('expands explicit staff module access into permissions', () => {
+        expect(
+            userHasPermission({ role: 'STAFF', modulePermissions: ['STUDENTS'] }, 'students:create'),
+        ).toBe(true);
+        expect(
+            userHasPermission({ role: 'STAFF', modulePermissions: ['STUDENTS'] }, 'fees:create'),
+        ).toBe(false);
     });
 });

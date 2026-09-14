@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { StudentController } from './students.controller.js';
 import { authenticate } from '../../api/middlewares/authMiddleware.js';
-import { authorizeModule, authorizeRoles } from '../../api/middlewares/roleMiddleware.js';
+import { authorizeModule, requirePermission } from '../../api/middlewares/roleMiddleware.js';
 import { ParentController } from '../parents/parents.controller.js';
 
 import { uploadMiddleware, handleBulkAdmission } from './students.bulk-controller.js';
@@ -10,32 +10,32 @@ const router = Router();
 
 router.use(authenticate, authorizeModule('STUDENTS'));
 
-router.post('/', authorizeRoles('ADMIN', 'SUPER_ADMIN', 'STAFF'), StudentController.create);
-router.get('/', authorizeModule('STUDENTS'), StudentController.list);
-router.get('/:id', StudentController.getById);
-router.patch('/:id', authorizeRoles('ADMIN', 'SUPER_ADMIN', 'STAFF'), StudentController.update);
+router.post('/', requirePermission('students:create'), StudentController.create);
+router.get('/', requirePermission('students:read'), StudentController.list);
+router.get('/:id', requirePermission('students:read'), StudentController.getById);
+router.patch('/:id', requirePermission('students:update'), StudentController.update);
 
 // Parent linkage management
 router.post(
     '/:id/parents',
-    authorizeRoles('ADMIN', 'SUPER_ADMIN', 'STAFF'),
+    requirePermission('students:update'),
     StudentController.linkParent,
 );
 router.delete(
     '/:id/parents/:parentId',
-    authorizeRoles('ADMIN', 'SUPER_ADMIN', 'STAFF'),
+    requirePermission('students:update'),
     StudentController.unlinkParent,
 );
 router.patch(
     '/:studentId/parents/:parentId/designations',
-    authorizeRoles('ADMIN', 'SUPER_ADMIN', 'STAFF'),
+    requirePermission('students:update'),
     ParentController.updateDesignation,
 );
 
 // Added Bulk operation route to src/modules/students/students.routes.js
 router.post(
     '/bulk-import',
-    authorizeRoles('ADMIN', 'SUPER_ADMIN'),
+    requirePermission('students:create'),
     uploadMiddleware,
     handleBulkAdmission,
 );

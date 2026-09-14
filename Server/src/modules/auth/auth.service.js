@@ -6,7 +6,7 @@ import { prisma, runTransaction } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
 import { recordAudit } from '../../shared/audit.js';
 import { sendLoginOtp, sendPasswordResetOtp } from '../../shared/email.js';
-import { UnauthorizedError, NotFoundError } from '../../shared/errors/AppError.js';
+import { RateLimitError, UnauthorizedError, NotFoundError } from '../../shared/errors/AppError.js';
 
 export class AuthService {
     static hashToken(token) {
@@ -33,12 +33,13 @@ export class AuthService {
         );
     }
 
-    static async createRefreshSession(userId, { ipAddress, userAgent } = {}) {
+    static async createRefreshSession(userId, { ipAddress, userAgent, familyId = randomUUID() } = {}) {
         const refreshToken = randomUUID() + randomUUID();
         await prisma.refreshSession.create({
             data: {
                 userId,
                 tokenHash: this.hashToken(refreshToken),
+                familyId,
                 expiresAt: new Date(Date.now() + env.REFRESH_TOKEN_EXPIRES_DAYS * 86400000),
                 ipAddress,
                 userAgent,
@@ -90,9 +91,9 @@ export class AuthService {
     /**
      * Authenticate user and enforce Single Device Session
      */
-    static async login({ username, email, password, userAgent, ipAddress }) {
+    static async login({ email, password, userAgent, ipAddress }) {
         const user = await prisma.user.findFirst({
-            where: { username, email },
+            where: { email },
             include: {
                 school: {
                     select: {
@@ -277,7 +278,11 @@ export class AuthService {
             include: { user: true },
         });
 
-        if (!challenge || challenge.attempts >= 5 || challenge.codeHash !== this.hashToken(otp)) {
+        if (
+            !challenge ||
+            challenge.attempts >= env.OTP_MAX_ATTEMPTS ||
+            challenge.codeHash !== this.hashToken(otp)
+        ) {
             if (challenge)
                 await prisma.passwordResetOtp.update({
                     where: { id: challenge.id },
@@ -350,6 +355,21 @@ export class AuthService {
         if (!user || !user.isActive)
             throw new UnauthorizedError('Unable to resend login verification code');
 
+        const resendWindowStart = new Date(
+            Date.now() - env.OTP_RESEND_WINDOW_MINUTES * 60 * 1000,
+        );
+        const resendCount = await prisma.passwordResetOtp.count({
+            where: {
+                userId,
+                purpose: 'LOGIN',
+                isResend: true,
+                createdAt: { gte: resendWindowStart },
+            },
+        });
+        if (resendCount >= env.OTP_RESEND_LIMIT) {
+            throw new RateLimitError('Too many OTP resends. Try again later.');
+        }
+
         const otp = String(randomInt(100000, 1000000));
         await prisma.passwordResetOtp.updateMany({
             where: { userId, purpose: 'LOGIN', consumedAt: null },
@@ -361,6 +381,7 @@ export class AuthService {
                 userId,
                 codeHash: this.hashToken(otp),
                 purpose: 'LOGIN',
+                    isResend: true,
                 expiresAt: new Date(Date.now() + env.LOGIN_OTP_MINUTES * 60000),
             },
         });
@@ -482,18 +503,47 @@ export class AuthService {
             where: { tokenHash },
             include: { user: true },
         });
-        if (
-            !session ||
-            session.revokedAt ||
-            session.expiresAt <= new Date() ||
-            !session.user.isActive
-        ) {
+        if (!session) {
+            throw new UnauthorizedError('Refresh token is invalid or expired');
+        }
+
+        if (session.revokedAt) {
+            const reusedAt = new Date();
+            await runTransaction([
+                prisma.refreshSession.updateMany({
+                    where: { familyId: session.familyId, revokedAt: null },
+                    data: { revokedAt: reusedAt, reusedAt },
+                }),
+                prisma.refreshSession.updateMany({
+                    where: { userId: session.userId, revokedAt: null, familyId: { not: session.familyId } },
+                    data: { revokedAt: reusedAt },
+                }),
+                prisma.user.update({
+                    where: { id: session.userId },
+                    data: { currentSessionId: null },
+                }),
+            ]);
+            await recordAudit({
+                action: 'AUTH_REFRESH_TOKEN_REUSE',
+                actorId: session.userId,
+                schoolId: session.user.schoolId,
+                entityType: 'RefreshSession',
+                entityId: session.id,
+                ipAddress,
+                userAgent,
+                metadata: { familyId: session.familyId, replacedById: session.replacedById },
+            });
+            throw new UnauthorizedError('Refresh token reuse detected; all sessions were revoked');
+        }
+
+        if (session.expiresAt <= new Date() || !session.user.isActive) {
             throw new UnauthorizedError('Refresh token is invalid or expired');
         }
 
         const nextRefreshToken = await this.createRefreshSession(session.userId, {
             ipAddress,
             userAgent,
+            familyId: session.familyId,
         });
         await prisma.refreshSession.update({
             where: { id: session.id },
