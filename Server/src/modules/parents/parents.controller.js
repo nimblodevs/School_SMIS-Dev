@@ -40,7 +40,7 @@ export class ParentController {
                 page,
                 pageSize,
                 search,
-                schoolId: req.user.role === 'SUPER_ADMIN' ? req.query.schoolId : req.user.schoolId,
+                schoolId: req.user.schoolId,
             });
 
             return res.status(200).json({
@@ -60,8 +60,7 @@ export class ParentController {
 
     static async getById(req, res, next) {
         try {
-            const schoolId = req.user.role === 'SUPER_ADMIN' ? null : req.user.schoolId;
-            const parent = await ParentService.getById(req.params.id, schoolId);
+            const parent = await ParentService.getById(req.params.id, req.user.schoolId);
             return res.status(200).json({ success: true, data: parent });
         } catch (error) {
             next(error);

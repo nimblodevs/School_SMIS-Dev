@@ -139,6 +139,7 @@ export class StorageService {
     }
 
     static async getFilesByEntity(relatedType, relatedId, schoolId) {
+        if (!schoolId) throw new BadRequestError('A school must be selected');
         const files = await prisma.fileUpload.findMany({
             where: {
                 schoolId,

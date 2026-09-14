@@ -45,7 +45,17 @@ School SMIS is a backend API for managing school operations, including academic 
    npm run prisma:migrate
    ```
 
-6. Start the server:
+6. Optionally load two isolated demo tenants:
+   ```bash
+   npm run prisma:seed
+   ```
+
+   The seed creates `demo-school` and `northstar-demo`. Use `admin` / `AdminDemo123!`
+   for the first tenant, `northstar.admin` / `AdminDemo123!` for the second, or
+   `superadmin` / `SuperAdmin123!` with the printed `x-school-id` value. These
+   credentials are development fixtures only.
+
+7. Start the server:
    ```bash
    npm run dev
    ```
@@ -68,6 +78,17 @@ School SMIS is a backend API for managing school operations, including academic 
 ## Prisma Notes
 
 This project uses Prisma with PostgreSQL and a JavaScript-based Prisma configuration.
+
+## Tenant Isolation
+
+Authenticated school users are always restricted to the school in their account. Platform
+`SUPER_ADMIN` users must select an active tenant by sending its UUID in the `x-school-id`
+header before using any tenant-owned module. They may omit the header only for platform-level
+school administration and global audit-log access.
+
+Tenant isolation is enforced in both the Prisma query extension and database relationship
+triggers. Services must still validate that all user-supplied related IDs belong to the
+effective school before writing, using the shared ownership helpers.
 
 ## License
 

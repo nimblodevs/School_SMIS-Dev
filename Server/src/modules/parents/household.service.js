@@ -1,13 +1,14 @@
 import { prisma } from '../../config/prisma.js';
-import { NotFoundError } from '../../shared/errors/AppError.js';
+import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
 
 export class HouseholdService {
     /**
      * Fetches all children/siblings tied to a parent account.
      */
-    static async getHouseholdOverview(parentId) {
-        const parent = await prisma.parent.findUnique({
-            where: { id: parentId },
+    static async getHouseholdOverview(parentId, schoolId) {
+        if (!schoolId) throw new BadRequestError('A school must be selected');
+        const parent = await prisma.parent.findFirst({
+            where: { id: parentId, schoolId },
             include: {
                 students: {
                     include: {

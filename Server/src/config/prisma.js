@@ -6,7 +6,7 @@ import { tenantContext } from './tenant-context.js';
 import { getOrCreateTraceId, recordAuditTrace, runWithTraceId } from './tracing.js';
 
 const globalForPrisma = globalThis;
-const TENANT_MODELS = new Set([
+export const TENANT_MODELS = new Set([
     'SchoolSettings',
     'User',
     'EmployeeNumber',
@@ -14,6 +14,7 @@ const TENANT_MODELS = new Set([
     'Staff',
     'Student',
     'Parent',
+    'AdmissionSequence',
     'AcademicYear',
     'Term',
     'ClassLevel',
@@ -32,6 +33,12 @@ const TENANT_MODELS = new Set([
     'FeeStructure',
     'Invoice',
     'Payment',
+    'PaymentAllocation',
+    'CreditNote',
+    'CreditNoteApplication',
+    'PaymentRefund',
+    'IdempotencyKey',
+    'LedgerEntry',
     'StaffModuleAccess',
     'AuditLog',
     'FileUpload',
@@ -56,19 +63,41 @@ const TENANT_MODELS = new Set([
     'ResignationRecord',
 ]);
 
-function addTenantScope(args, operation, schoolId) {
+export function addTenantScope(args, operation, schoolId) {
     const scopedArgs = { ...args };
+    const operationsWithWhere = new Set([
+        'findUnique',
+        'findUniqueOrThrow',
+        'findFirst',
+        'findFirstOrThrow',
+        'findMany',
+        'count',
+        'aggregate',
+        'groupBy',
+        'update',
+        'updateMany',
+        'updateManyAndReturn',
+        'delete',
+        'deleteMany',
+        'upsert',
+    ]);
 
-    if (['findUnique', 'findFirst', 'findMany', 'count', 'aggregate', 'groupBy', 'update', 'updateMany', 'delete', 'deleteMany', 'upsert'].includes(operation)) {
+    if (operationsWithWhere.has(operation)) {
         scopedArgs.where = { ...(scopedArgs.where || {}), schoolId };
     }
 
-    if (operation === 'create' || operation === 'update' || operation === 'upsert') {
+    if (['create', 'update', 'updateMany', 'updateManyAndReturn'].includes(operation)) {
         scopedArgs.data = { ...(scopedArgs.data || {}), schoolId };
     }
 
-    if (operation === 'createMany') {
-        scopedArgs.data = scopedArgs.data.map((data) => ({ ...data, schoolId }));
+    if (operation === 'upsert') {
+        scopedArgs.create = { ...(scopedArgs.create || {}), schoolId };
+        scopedArgs.update = { ...(scopedArgs.update || {}), schoolId };
+    }
+
+    if (operation === 'createMany' || operation === 'createManyAndReturn') {
+        const rows = Array.isArray(scopedArgs.data) ? scopedArgs.data : [scopedArgs.data];
+        scopedArgs.data = rows.map((data) => ({ ...data, schoolId }));
     }
 
     return scopedArgs;

@@ -149,8 +149,9 @@ export class ParentService {
      * Search and filter parent registry.
      */
     static async list({ page = 1, pageSize = 20, search, schoolId }) {
+        if (!schoolId) throw new BadRequestError('A school must be selected');
         const where = {
-            ...(schoolId ? { schoolId } : {}),
+            schoolId,
             ...(search
                 ? {
                     OR: [
@@ -164,7 +165,7 @@ export class ParentService {
                 : {}),
         };
 
-        const [parents, total] = await runTransaction([
+        const [parents, total] = await Promise.all([
             prisma.parent.findMany({
                 where,
                 select: parentSelect,
@@ -188,10 +189,11 @@ export class ParentService {
      * Fetch single parent details.
      */
     static async getById(parentId, schoolId) {
+        if (!schoolId) throw new BadRequestError('A school must be selected');
         const parent = await prisma.parent.findFirst({
             where: {
                 id: parentId,
-                ...(schoolId ? { schoolId } : {}),
+                schoolId,
             },
             select: parentSelect,
         });
@@ -273,7 +275,16 @@ export class ParentService {
      * Unlink a student from a parent.
      */
     static async unlinkStudent(parentId, studentId, actor) {
-        await this.getById(parentId, actor.schoolId);
+        const link = await prisma.studentParent.findFirst({
+            where: {
+                parentId,
+                studentId,
+                parent: { schoolId: actor.schoolId },
+                student: { schoolId: actor.schoolId },
+            },
+            select: { parentId: true },
+        });
+        if (!link) throw new NotFoundError('Association between student and parent not found');
 
         try {
             await prisma.studentParent.delete({

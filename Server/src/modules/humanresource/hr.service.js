@@ -1,6 +1,7 @@
 import { prisma, runTransaction } from '../../config/prisma.js';
-import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../../shared/errors/AppError.js';
 import { recordAudit } from '../../shared/audit.js';
+import { resolveSchoolId } from '../../shared/ownership.js';
 
 export class HRService {
     /**
@@ -8,18 +9,33 @@ export class HRService {
      * Runs inside a single transaction — all-or-nothing.
      */
     static async resetLeaveBalances(schoolId, year, actor, ctx = {}) {
+        schoolId = resolveSchoolId(actor, schoolId);
         if (!Number.isInteger(year)) throw new BadRequestError('year must be an integer');
 
         return runTransaction(async (tx) => {
             const [leaveTypes, teachers, staff] = await Promise.all([
                 tx.leaveType.findMany({ where: { schoolId } }),
-                tx.teacher.findMany({ where: { schoolId }, select: { id: true, employeeKey: true } }),
-                tx.staff.findMany({ where: { schoolId }, select: { id: true, employeeKey: true } }),
+                tx.teacher.findMany({
+                    where: { schoolId },
+                    select: { id: true, employeeKey: true },
+                }),
+                tx.staff.findMany({
+                    where: { schoolId },
+                    select: { id: true, employeeKey: true },
+                }),
             ]);
 
             const employees = [
-                ...teachers.map((t) => ({ employeeKey: t.employeeKey, teacherId: t.id, staffId: null })),
-                ...staff.map((s) => ({ employeeKey: s.employeeKey, teacherId: null, staffId: s.id })),
+                ...teachers.map((t) => ({
+                    employeeKey: t.employeeKey,
+                    teacherId: t.id,
+                    staffId: null,
+                })),
+                ...staff.map((s) => ({
+                    employeeKey: s.employeeKey,
+                    teacherId: null,
+                    staffId: s.id,
+                })),
             ];
 
             // Build all upserts as Prisma promises bound to `tx`
@@ -62,7 +78,11 @@ export class HRService {
                     schoolId,
                     entityType: 'LeaveBalance',
                     entityId: `year:${year}`,
-                    metadata: { year, employees: employees.length, leaveTypes: leaveTypes.length },
+                    metadata: {
+                        year,
+                        employees: employees.length,
+                        leaveTypes: leaveTypes.length,
+                    },
                     ...ctx,
                 },
                 tx,
@@ -72,8 +92,8 @@ export class HRService {
         });
     }
 
-    static async requestLeave(payload, actor, ctx = {}) {
-        const schoolId = actor.schoolId;
+    static async requestLeave(payload, actor) {
+        const schoolId = resolveSchoolId(actor);
         const start = new Date(payload.startDate);
         const end = new Date(payload.endDate);
         if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
@@ -83,6 +103,34 @@ export class HRService {
 
         if ((payload.teacherId && payload.staffId) || (!payload.teacherId && !payload.staffId)) {
             throw new BadRequestError('Exactly one of teacherId or staffId must be provided');
+        }
+
+        const [leaveType, employee] = await Promise.all([
+            prisma.leaveType.findFirst({
+                where: { id: payload.leaveTypeId, schoolId },
+                select: { id: true },
+            }),
+            payload.teacherId
+                ? prisma.teacher.findFirst({
+                      where: { id: payload.teacherId, schoolId },
+                      select: { id: true, userId: true },
+                  })
+                : prisma.staff.findFirst({
+                      where: { id: payload.staffId, schoolId },
+                      select: { id: true, userId: true },
+                  }),
+        ]);
+        if (!leaveType) throw new BadRequestError('Leave type does not belong to this school');
+        if (!employee) throw new BadRequestError('Employee does not belong to this school');
+
+        if (actor.role === 'TEACHER') {
+            if (!payload.teacherId || employee.userId !== actor.id) {
+                throw new ForbiddenError('Teachers can only request leave for themselves');
+            }
+        } else if (actor.role === 'STAFF') {
+            if (!payload.staffId || employee.userId !== actor.id) {
+                throw new ForbiddenError('Staff can only request leave for themselves');
+            }
         }
 
         return prisma.leaveRequest.create({
@@ -104,7 +152,7 @@ export class HRService {
      * decrements usedDays, and writes an audit event — all in one transaction.
      */
     static async approveLeave(leaveRequestId, actor, ctx = {}) {
-        const schoolId = actor.schoolId;
+        const schoolId = resolveSchoolId(actor);
 
         return runTransaction(async (tx) => {
             const leave = await tx.leaveRequest.findFirst({
@@ -124,18 +172,16 @@ export class HRService {
             const days = HRService._workingDaysBetween(start, end);
             if (days <= 0) throw new BadRequestError('Leave must include at least one working day');
 
-            const employeeKey = leave.teacherId
-                ? `T:${leave.teacherId}`
-                : `S:${leave.staffId}`;
+            const employeeKey = leave.teacherId ? `T:${leave.teacherId}` : `S:${leave.staffId}`;
             const year = start.getUTCFullYear();
 
             // Lock balance row
             const [balance] = await tx.$queryRaw`
-        SELECT id, allocated_days, used_days
+        SELECT id, "allocatedDays", "usedDays"
         FROM leave_balances
-        WHERE school_id = ${schoolId}::uuid
-          AND leave_type_id = ${leave.leaveTypeId}::uuid
-          AND employee_key = ${employeeKey}
+        WHERE "schoolId" = ${schoolId}
+          AND "leaveTypeId" = ${leave.leaveTypeId}
+          AND "employeeKey" = ${employeeKey}
           AND year = ${year}
         FOR UPDATE
       `;
@@ -144,7 +190,7 @@ export class HRService {
                     `No leave balance configured for ${employeeKey} / ${year}. Run resetLeaveBalances first.`,
                 );
             }
-            const remaining = balance.allocated_days - balance.used_days;
+            const remaining = balance.allocatedDays - balance.usedDays;
             if (remaining < days) {
                 throw new BadRequestError(
                     `Insufficient leave balance: requested ${days}, remaining ${remaining}`,
@@ -172,7 +218,12 @@ export class HRService {
                     schoolId,
                     entityType: 'LeaveRequest',
                     entityId: leaveRequestId,
-                    metadata: { status: 'APPROVED', daysDeducted: days, employeeKey, year },
+                    metadata: {
+                        status: 'APPROVED',
+                        daysDeducted: days,
+                        employeeKey,
+                        year,
+                    },
                     ...ctx,
                 },
                 tx,
@@ -185,7 +236,9 @@ export class HRService {
     /** Count Mon-Fri days between two dates, inclusive. */
     static _workingDaysBetween(start, end) {
         let count = 0;
-        const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
+        const cursor = new Date(
+            Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()),
+        );
         const last = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
         while (cursor <= last) {
             const dow = cursor.getUTCDay();

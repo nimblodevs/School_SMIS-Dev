@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma, runTransaction } from '../../config/prisma.js';
 import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
 import { recordAudit } from '../../shared/audit.js';
-import { nextInvoiceNo, nextPayslipNo } from '../../shared/sequences.js';
+import { assertOwnership, resolveSchoolId } from '../../shared/ownership.js';
 
 const D = (v) => new Prisma.Decimal(v); // guard against float input
 
@@ -12,13 +12,17 @@ export class FinanceService {
     // ----------------------------------------------------------
 
     static async generateTermInvoices({ termId, classLevelId, dueDate }, actor, ctx = {}) {
-        const schoolId = actor.schoolId;
+        const schoolId = resolveSchoolId(actor);
         const due = new Date(dueDate);
         if (Number.isNaN(due.getTime())) throw new BadRequestError('Invalid dueDate');
+        await assertOwnership(prisma, schoolId, [
+            { model: 'term', id: termId, label: 'Term' },
+            { model: 'classLevel', id: classLevelId, label: 'Class level' },
+        ]);
 
-        // Pull ALL fee structures for this term + class level (not just one)
+        // The schema stores one aggregate fee structure per term and class level.
         const feeStructures = await prisma.feeStructure.findMany({
-            where: { schoolId, termId, classLevelId, isActive: true },
+            where: { schoolId, termId, classLevelId },
         });
         if (feeStructures.length === 0) {
             throw new NotFoundError('No active fee structures for this term and class level');
@@ -42,21 +46,13 @@ export class FinanceService {
                         studentId: enrollment.studentId,
                         enrollmentId: enrollment.id,
                         termId,
-                        invoiceNo: await nextInvoiceNo(tx, schoolId),
-                        status: 'ISSUED',
-                        issuedAt: new Date(),
+                        amountDue: feeStructures.reduce(
+                            (total, feeStructure) => total.plus(feeStructure.amount),
+                            D(0),
+                        ),
+                        amountPaid: D(0),
+                        status: 'UNPAID',
                         dueDate: due,
-                        lines: {
-                            create: feeStructures.map((fs) => ({
-                                schoolId,
-                                feeStructureId: fs.id,
-                                description: fs.description ?? fs.category,
-                                category: fs.category,
-                                quantity: D(1),
-                                unitAmount: fs.amount,
-                                amount: fs.amount,
-                            })),
-                        },
                     },
                 });
                 results.push(invoice);
@@ -95,9 +91,13 @@ export class FinanceService {
      * @param {string} [payload.idempotencyKey]  M-Pesa CheckoutRequestID or receipt
      */
     static async recordPayment(payload, actor, ctx = {}) {
-        const schoolId = actor.schoolId;
+        const schoolId = resolveSchoolId(actor);
         const amount = D(payload.amount);
         if (amount.lte(0)) throw new BadRequestError('Amount must be positive');
+        await assertOwnership(prisma, schoolId, [
+            { model: 'student', id: payload.studentId, label: 'Student', optional: true },
+            { model: 'invoice', id: payload.invoiceId, label: 'Invoice', optional: true },
+        ]);
 
         return runTransaction(async (tx) => {
             // Idempotency: M-Pesa retries the same checkoutRequestId
@@ -117,6 +117,7 @@ export class FinanceService {
             const payment = await tx.payment.create({
                 data: {
                     schoolId,
+                    invoiceId: payload.invoiceId ?? null,
                     studentId: payload.studentId ?? null,
                     amount,
                     method: payload.method,
@@ -140,10 +141,8 @@ export class FinanceService {
                 debitAccount: FinanceService._accountForMethod(payload.method),
                 creditAccount: '4000-FEE-REVENUE',
                 amount,
-                referenceType: 'Payment',
-                referenceId: payment.id,
+                reference: `Payment:${payment.id}`,
                 narration: `Fee payment (${payload.method})`,
-                postedById: actor.id,
             });
 
             await recordAudit(
@@ -177,21 +176,24 @@ export class FinanceService {
         for (const alloc of allocations) {
             // Lock the invoice row to prevent concurrent allocation races
             const [invoice] = await tx.$queryRaw`
-        SELECT id, "schoolId" AS school_id, "amountDue" AS amount_due, status
+        SELECT id, "schoolId" AS school_id, "studentId" AS student_id, "amountDue" AS amount_due, status
         FROM invoices
-        WHERE id = ${alloc.invoiceId}
+        WHERE id = ${alloc.invoiceId} AND "schoolId" = ${payment.schoolId}
         FOR UPDATE
       `;
             if (!invoice || invoice.school_id !== payment.schoolId) {
                 throw new NotFoundError(`Invoice ${alloc.invoiceId} not found`);
             }
+            if (payment.studentId && invoice.student_id !== payment.studentId) {
+                throw new BadRequestError('Payment and invoice must belong to the same student');
+            }
 
             // Compute outstanding from the current schema and active allocations.
             const [balanceRow] = await tx.$queryRaw`
         SELECT
-                    (SELECT "amountDue" FROM invoices WHERE id = ${alloc.invoiceId})
-                    - COALESCE((SELECT SUM("amount") FROM credit_note_applications WHERE "invoiceId" = ${alloc.invoiceId} AND "status" = 'ACTIVE'), 0)
-                    - COALESCE((SELECT SUM("amount") FROM payment_allocations WHERE "invoiceId" = ${alloc.invoiceId} AND "status" = 'ACTIVE'), 0)
+                    (SELECT "amountDue" FROM invoices WHERE id = ${alloc.invoiceId} AND "schoolId" = ${payment.schoolId})
+                    - COALESCE((SELECT SUM("amount") FROM credit_note_applications WHERE "invoiceId" = ${alloc.invoiceId} AND "schoolId" = ${payment.schoolId} AND "status" = 'ACTIVE'), 0)
+                    - COALESCE((SELECT SUM("amount") FROM payment_allocations WHERE "invoiceId" = ${alloc.invoiceId} AND "schoolId" = ${payment.schoolId} AND "status" = 'ACTIVE'), 0)
           AS outstanding
       `;
             const before = D(balanceRow.outstanding);
@@ -243,19 +245,19 @@ export class FinanceService {
     }
 
     /** Writes a balanced DEBIT/CREDIT pair. */
-    static async _postLedger(tx, { schoolId, debitAccount, creditAccount, amount, referenceType, referenceId, narration, postedById }) {
+    static async _postLedger(tx, { schoolId, debitAccount, creditAccount, amount, reference, narration }) {
         const entryDate = new Date();
         await tx.ledgerEntry.createMany({
             data: [
                 {
-                    schoolId, accountCode: debitAccount, accountType: 'ASSET',
-                    direction: 'DEBIT', amount, referenceType, referenceId,
-                    narration, entryDate, postedById,
+                    schoolId, accountCode: debitAccount,
+                    direction: 'DEBIT', amount, reference,
+                    narration, entryDate,
                 },
                 {
-                    schoolId, accountCode: creditAccount, accountType: 'REVENUE',
-                    direction: 'CREDIT', amount, referenceType, referenceId,
-                    narration, entryDate, postedById,
+                    schoolId, accountCode: creditAccount,
+                    direction: 'CREDIT', amount, reference,
+                    narration, entryDate,
                 },
             ],
         });

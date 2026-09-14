@@ -4,14 +4,16 @@ import { prisma, runTransaction } from '../../config/prisma.js';
 import { recordAudit } from '../../shared/audit.js';
 import { sendParentActivationInvite } from '../../shared/email.js';
 import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
+import { resolveSchoolId } from '../../shared/ownership.js';
 
 export class ParentActivationService {
     /**
      * Generates a time-sensitive activation token and emails/SMS it to the parent.
      */
     static async sendActivationInvite(parentId, actor, { ipAddress, userAgent } = {}) {
-        const parent = await prisma.parent.findUnique({
-            where: { id: parentId },
+        const schoolId = resolveSchoolId(actor);
+        const parent = await prisma.parent.findFirst({
+            where: { id: parentId, schoolId },
             include: { user: true },
         });
 
@@ -33,7 +35,7 @@ export class ParentActivationService {
                     email,
                     phone: parent.phone,
                     role: 'PARENT',
-                    schoolId: parent.schoolId,
+                    schoolId,
                     passwordHash: await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10), // temporary lock
                     isActive: false,
                 },
@@ -60,7 +62,7 @@ export class ParentActivationService {
         await recordAudit({
             action: 'INVITE',
             actorId: actor.id,
-            schoolId: parent.schoolId,
+            schoolId,
             entityType: 'Parent',
             entityId: parent.id,
             metadata: { email: parent.email, phone: parent.phone },

@@ -16,7 +16,13 @@ export const JOB_TYPES = {
     LEAVE_BALANCE_RESET: 'LEAVE_BALANCE_RESET',
 };
 
-export async function enqueueJob({ type, schoolId = null, payload = {}, availableAt = new Date(), maxAttempts = 3 }) {
+export async function enqueueJob({
+    type,
+    schoolId = null,
+    payload = {},
+    availableAt = new Date(),
+    maxAttempts = 3,
+}) {
     return prisma.backgroundJob.create({
         data: { id: randomUUID(), type, schoolId, payload, availableAt, maxAttempts },
     });
@@ -37,29 +43,59 @@ async function claimNextJob() {
 }
 
 async function runJob(job) {
-    const actor = { id: job.payload.actorId || null, schoolId: job.schoolId, role: 'SYSTEM' };
+    let actor = { id: null, schoolId: job.schoolId, role: 'SYSTEM' };
+    if (job.payload.actorId) {
+        const requestingUser = await prisma.user.findFirst({
+            where: { id: job.payload.actorId, schoolId: job.schoolId },
+            select: { id: true, schoolId: true, role: true },
+        });
+        if (!requestingUser) {
+            throw new Error('Background job requester no longer exists in this school');
+        }
+        actor = requestingUser;
+    }
+
     switch (job.type) {
         case JOB_TYPES.REPORT_CARD_PDF:
             return DocumentService.generateReportCardPdf(job.payload, actor);
         case JOB_TYPES.PAYROLL_RUN: {
-            const run = await PayrollService.executePayrollRun(job.payload.month, actor);
-            const payslips = await prisma.payslip.findMany({ where: { payrollRunId: run.id, schoolId: job.schoolId } });
-            await Promise.all(payslips.map((payslip) => enqueueJob({
-                type: JOB_TYPES.PAYSLIP_PDF,
-                schoolId: job.schoolId,
-                payload: { payslipId: payslip.id },
-            })));
+            const run = await PayrollService.executePayrollRun(
+                { year: job.payload.year, month: job.payload.month },
+                actor,
+            );
+            const payslips = await prisma.payslip.findMany({
+                where: { payrollRunId: run.id, schoolId: job.schoolId },
+            });
+            await Promise.all(
+                payslips.map((payslip) =>
+                    enqueueJob({
+                        type: JOB_TYPES.PAYSLIP_PDF,
+                        schoolId: job.schoolId,
+                        payload: {
+                            payslipId: payslip.id,
+                            actorId: job.payload.actorId,
+                        },
+                    }),
+                ),
+            );
             return run;
         }
         case JOB_TYPES.PAYSLIP_PDF: {
             const file = await DocumentService.generatePayslipPdf(job.payload.payslipId, actor);
             const payslip = await prisma.payslip.findFirst({
                 where: { id: job.payload.payslipId, schoolId: job.schoolId },
-                include: { payrollRun: true, teacher: { include: { user: true } }, staff: { include: { user: true } } },
+                include: {
+                    payrollRun: true,
+                    teacher: { include: { user: true } },
+                    staff: { include: { user: true } },
+                },
             });
             const user = payslip?.teacher?.user || payslip?.staff?.user;
             if (user?.email) {
-                const downloadUrl = await StorageService.createDownloadUrl(file.storageKey, job.schoolId);
+                const downloadUrl = await StorageService.createDownloadUrl(
+                    file.storageKey,
+                    job.schoolId,
+                );
                 await sendPayslipEmail({
                     to: user.email,
                     employeeName: `${payslip.teacher?.firstName || payslip.staff?.firstName} ${payslip.teacher?.lastName || payslip.staff?.lastName}`,
@@ -75,7 +111,13 @@ async function runJob(job) {
             const schools = job.schoolId
                 ? [{ id: job.schoolId }]
                 : await prisma.school.findMany({ where: { isActive: true }, select: { id: true } });
-            for (const school of schools) await HRService.resetLeaveBalances(school.id, job.payload.year);
+            for (const school of schools) {
+                await HRService.resetLeaveBalances(school.id, job.payload.year, {
+                    id: null,
+                    schoolId: school.id,
+                    role: 'SYSTEM',
+                });
+            }
             return { schools: schools.length, year: job.payload.year };
         }
         default:
@@ -109,11 +151,19 @@ export async function processNextJob() {
 }
 
 export function startBackgroundProcessing() {
-    const interval = setInterval(() => processNextJob().catch((error) => logger.error({ err: error }, 'Background worker tick failed')), 2000);
+    const interval = setInterval(
+        () =>
+            processNextJob().catch((error) =>
+                logger.error({ err: error }, 'Background worker tick failed'),
+            ),
+        2000,
+    );
     interval.unref();
-    cron.schedule('15 0 1 1 *', () => enqueueJob({
-        type: JOB_TYPES.LEAVE_BALANCE_RESET,
-        payload: { year: new Date().getFullYear() },
-    }).catch((error) => logger.error({ err: error }, 'Annual leave reset could not be queued')));
+    cron.schedule('15 0 1 1 *', () =>
+        enqueueJob({
+            type: JOB_TYPES.LEAVE_BALANCE_RESET,
+            payload: { year: new Date().getFullYear() },
+        }).catch((error) => logger.error({ err: error }, 'Annual leave reset could not be queued')),
+    );
     return () => clearInterval(interval);
 }

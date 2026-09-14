@@ -1,4 +1,4 @@
-import { AppError, InternalServerError } from '../../shared/errors/AppError.js';
+import { AppError } from '../../shared/errors/AppError.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 import { Prisma } from '@prisma/client';

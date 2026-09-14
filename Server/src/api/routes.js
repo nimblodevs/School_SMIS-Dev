@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import authRoutes from '../modules/auth/auth.router.js';
 import auditRoutes from '../modules/audit/audit.router.js';
 import userRoutes from '../modules/users/user.router.js';
@@ -12,15 +13,22 @@ import payrollRoutes from '../modules/payroll/payroll.routes.js';
 import hrRoutes from '../modules/humanresource/hr.routes.js';
 import jobRoutes from '../modules/jobs/jobs.routes.js';
 import financeRoutes from '../modules/finance/finance.routes.js';
+import attendanceRoutes from '../modules/attendance/attendance.routes.js';
+import parentRoutes from '../modules/parents/parents.routes.js';
+import academicsRoutes from '../modules/academics/academics.routes.js';
 
 const router = Router();
+const globalLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: 300,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+});
 
 // ---- Public routes ----
 router.use('/auth', authRoutes);
 
-// ---- Everything below requires authentication ----
-router.use(originGuard);
-router.use(authenticate);
+// ---- Apply a general abuse limit to all protected module routers below ----
 router.use(globalLimiter);
 
 router.use('/users', userRoutes);
@@ -35,6 +43,8 @@ router.use('/hr', hrRoutes);
 router.use('/jobs', jobRoutes);
 router.use('/finance', financeRoutes);
 router.use('/audit-logs', auditRoutes);
+router.use('/attendance', attendanceRoutes);
+router.use('/parents', parentRoutes);
+router.use('/academics', academicsRoutes);
 
 export default router;
-

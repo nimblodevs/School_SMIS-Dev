@@ -1,23 +1,70 @@
-import * as XLSX from 'xlsx';
+import { Readable } from 'node:stream';
+import ExcelJS from 'exceljs';
 import { prisma, runTransaction } from '../../config/prisma.js';
 import { bulkStudentRowSchema } from './students.bulk-validation.js';
 import { recordAudit } from '../../shared/audit.js';
 import { BadRequestError } from '../../shared/errors/AppError.js';
 import { nextAdmissionNo } from '../../shared/sequences.js';
 
+const MAX_IMPORT_ROWS = 2_000;
+
+function cellText(cell) {
+    const value = cell.value;
+    if (value === null || value === undefined) return '';
+    if (value instanceof Date) return value.toISOString().slice(0, 10);
+    if (typeof value === 'object') {
+        if ('result' in value) return String(value.result ?? '');
+        if ('text' in value) return String(value.text ?? '');
+        if (Array.isArray(value.richText)) {
+            return value.richText.map((part) => part.text).join('');
+        }
+    }
+    return String(value);
+}
+
+export async function parseRows(fileBuffer, { mimetype, originalName }) {
+    const workbook = new ExcelJS.Workbook();
+    const isCsv = mimetype === 'text/csv' || originalName.toLowerCase().endsWith('.csv');
+    const worksheet = isCsv
+        ? await workbook.csv.read(Readable.from([fileBuffer]))
+        : (await workbook.xlsx.load(fileBuffer)).worksheets[0];
+
+    if (!worksheet) throw new BadRequestError('Uploaded file does not contain a worksheet');
+
+    const headers = worksheet
+        .getRow(1)
+        .values.slice(1)
+        .map((value) => String(value ?? '').trim());
+    if (headers.some((header) => !header)) {
+        throw new BadRequestError('Every import column must have a header');
+    }
+
+    const rows = [];
+    worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return;
+        const data = Object.fromEntries(
+            headers.map((header, index) => [header, cellText(row.getCell(index + 1)).trim()]),
+        );
+        if (Object.values(data).some(Boolean)) rows.push(data);
+    });
+
+    if (rows.length > MAX_IMPORT_ROWS) {
+        throw new BadRequestError(`Bulk imports are limited to ${MAX_IMPORT_ROWS} data rows`);
+    }
+    return rows;
+}
+
 export class BulkAdmissionService {
     /**
      * Parses file buffer, validates each row against the schema and existing DB constraints,
      * then atomically admits valid records.
      */
-    static async processBulkAdmission(fileBuffer, mimetype, actor, { ipAddress, userAgent } = {}) {
+    static async processBulkAdmission(fileBuffer, fileInfo, actor, { ipAddress, userAgent } = {}) {
         const schoolId = actor.schoolId;
         if (!schoolId) throw new BadRequestError('User context must belong to a school');
 
         // 1. Parse Excel / CSV File Buffer
-        const workbook = XLSX.read(fileBuffer, { type: 'buffer', cellDates: true });
-        const sheetName = workbook.SheetNames[0];
-        const rawData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { raw: false, defval: '' });
+        const rawData = await parseRows(fileBuffer, fileInfo);
 
         if (!rawData.length) {
             throw new BadRequestError('Uploaded file contains no data rows');
@@ -29,12 +76,18 @@ export class BulkAdmissionService {
         // Pre-fetch existing unique IDs in school to optimize validation
         const existingStudents = await prisma.student.findMany({
             where: { schoolId },
-            select: { nationalIdNumber: true, birthCertificateNumber: true, passportNumber: true },
+            select: {
+                nationalIdNumber: true,
+                birthCertificateNumber: true,
+                passportNumber: true,
+            },
         });
 
         const existingNationalIds = new Set(existingStudents.map((s) => s.nationalIdNumber));
         const existingBirthCerts = new Set(existingStudents.map((s) => s.birthCertificateNumber));
-        const existingPassports = new Set(existingStudents.map((s) => s.passportNumber).filter(Boolean));
+        const existingPassports = new Set(
+            existingStudents.map((s) => s.passportNumber).filter(Boolean),
+        );
 
         // 2. Validate Row-by-Row
         for (let index = 0; index < rawData.length; index++) {
@@ -47,7 +100,9 @@ export class BulkAdmissionService {
                 const fieldErrors = parsed.error.flatten().fieldErrors;
                 validationErrors.push({
                     row: rowNum,
-                    errors: Object.entries(fieldErrors).map(([field, msgs]) => `${field}: ${msgs.join(', ')}`),
+                    errors: Object.entries(fieldErrors).map(
+                        ([field, msgs]) => `${field}: ${msgs.join(', ')}`,
+                    ),
                 });
                 continue;
             }
@@ -60,7 +115,9 @@ export class BulkAdmissionService {
                 rowErrors.push(`National ID '${data.nationalIdNumber}' already exists in database`);
             }
             if (existingBirthCerts.has(data.birthCertificateNumber)) {
-                rowErrors.push(`Birth Cert '${data.birthCertificateNumber}' already exists in database`);
+                rowErrors.push(
+                    `Birth Cert '${data.birthCertificateNumber}' already exists in database`,
+                );
             }
             if (data.passportNumber && existingPassports.has(data.passportNumber)) {
                 rowErrors.push(`Passport '${data.passportNumber}' already exists in database`);
@@ -97,17 +154,31 @@ export class BulkAdmissionService {
         const createdStudents = await runTransaction(async (tx) => {
             const results = [];
 
-            const placementIds = validRows.reduce((ids, { data }) => {
-                ids.streamIds.add(data.streamId);
-                ids.academicYearIds.add(data.academicYearId);
-                return ids;
-            }, { streamIds: new Set(), academicYearIds: new Set() });
+            const placementIds = validRows.reduce(
+                (ids, { data }) => {
+                    ids.streamIds.add(data.streamId);
+                    ids.academicYearIds.add(data.academicYearId);
+                    return ids;
+                },
+                { streamIds: new Set(), academicYearIds: new Set() },
+            );
             const [streams, academicYears] = await Promise.all([
-                tx.stream.findMany({ where: { schoolId, id: { in: [...placementIds.streamIds] } }, select: { id: true } }),
-                tx.academicYear.findMany({ where: { schoolId, id: { in: [...placementIds.academicYearIds] } }, select: { id: true } }),
+                tx.stream.findMany({
+                    where: { schoolId, id: { in: [...placementIds.streamIds] } },
+                    select: { id: true },
+                }),
+                tx.academicYear.findMany({
+                    where: { schoolId, id: { in: [...placementIds.academicYearIds] } },
+                    select: { id: true },
+                }),
             ]);
-            if (streams.length !== placementIds.streamIds.size || academicYears.length !== placementIds.academicYearIds.size) {
-                throw new BadRequestError('Bulk placement contains a stream or academic year from another school');
+            if (
+                streams.length !== placementIds.streamIds.size ||
+                academicYears.length !== placementIds.academicYearIds.size
+            ) {
+                throw new BadRequestError(
+                    'Bulk placement contains a stream or academic year from another school',
+                );
             }
 
             for (let i = 0; i < validRows.length; i++) {
@@ -176,7 +247,11 @@ export class BulkAdmissionService {
             success: true,
             totalRows: rawData.length,
             admittedCount: createdStudents.length,
-            students: createdStudents.map((s) => ({ id: s.id, admissionNo: s.admissionNo, name: `${s.firstName} ${s.lastName}` })),
+            students: createdStudents.map((s) => ({
+                id: s.id,
+                admissionNo: s.admissionNo,
+                name: `${s.firstName} ${s.lastName}`,
+            })),
         };
     }
 }

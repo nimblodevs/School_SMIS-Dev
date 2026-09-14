@@ -5,6 +5,7 @@ import { env } from '../../config/env.js';
 import { recordAudit } from '../../shared/audit.js';
 import { sendTemporaryCredentials } from '../../shared/email.js';
 import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
+import { assertOwnership, resolveSchoolId } from '../../shared/ownership.js';
 
 function generateTemporaryPassword(schoolCode) {
     return `SMIS-${schoolCode}-${randomBytes(12).toString('base64url')}`;
@@ -12,13 +13,15 @@ function generateTemporaryPassword(schoolCode) {
 
 export class UserService {
     static async provisionEmployee(role, input, actor, { ipAddress, userAgent } = {}) {
-        const schoolId = actor.role === 'SUPER_ADMIN' ? input.schoolId : actor.schoolId;
-        if (!schoolId) throw new BadRequestError('schoolId is required for employee provisioning');
+        const schoolId = resolveSchoolId(actor, input.schoolId);
 
         const school = await prisma.school.findUnique({ where: { id: schoolId }, select: { id: true, schoolCode: true, isActive: true } });
         if (!school) throw new NotFoundError('School not found');
         if (!school.isActive) throw new BadRequestError('The school account is inactive');
         if (!/^\d{5}$/.test(school.schoolCode)) throw new BadRequestError('The school must have a valid five-digit school code');
+        await assertOwnership(prisma, schoolId, [
+            { model: 'jobGroup', id: input.jobGroupId, label: 'Job group', optional: true },
+        ]);
 
         const temporaryPassword = generateTemporaryPassword(school.schoolCode);
         const userId = randomUUID();

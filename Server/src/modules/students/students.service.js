@@ -74,10 +74,17 @@ export class StudentService {
             const admissionNo = await nextAdmissionNo(tx, schoolId, school.schoolCode);
 
             const [stream, academicYear] = await Promise.all([
-                tx.stream.findFirst({ where: { id: input.streamId, schoolId }, select: { id: true } }),
-                tx.academicYear.findFirst({ where: { id: input.academicYearId, schoolId }, select: { id: true } }),
+                tx.stream.findFirst({
+                    where: { id: input.streamId, schoolId },
+                    select: { id: true },
+                }),
+                tx.academicYear.findFirst({
+                    where: { id: input.academicYearId, schoolId },
+                    select: { id: true },
+                }),
             ]);
-            if (!stream || !academicYear) throw new BadRequestError('Initial placement does not belong to this school');
+            if (!stream || !academicYear)
+                throw new BadRequestError('Initial placement does not belong to this school');
 
             // 2. Create Student Record
             const newStudent = await tx.student.create({
@@ -109,8 +116,12 @@ export class StudentService {
             // 4. Link Parents/Guardians if provided
             if (input.parents && input.parents.length > 0) {
                 const parentIds = [...new Set(input.parents.map((parent) => parent.parentId))];
-                const parents = await tx.parent.findMany({ where: { id: { in: parentIds }, schoolId }, select: { id: true } });
-                if (parents.length !== parentIds.length) throw new BadRequestError('One or more parents do not belong to this school');
+                const parents = await tx.parent.findMany({
+                    where: { id: { in: parentIds }, schoolId },
+                    select: { id: true },
+                });
+                if (parents.length !== parentIds.length)
+                    throw new BadRequestError('One or more parents do not belong to this school');
                 await tx.studentParent.createMany({
                     data: input.parents.map((p) => ({
                         studentId: newStudent.id,
@@ -131,7 +142,10 @@ export class StudentService {
             schoolId,
             entityType: 'Student',
             entityId: student.id,
-            metadata: { admissionNo: student.admissionNo, name: `${student.firstName} ${student.lastName}` },
+            metadata: {
+                admissionNo: student.admissionNo,
+                name: `${student.firstName} ${student.lastName}`,
+            },
             ipAddress,
             userAgent,
         });
@@ -143,24 +157,25 @@ export class StudentService {
      * Search and filter student registry.
      */
     static async list({ page = 1, pageSize = 20, search, streamId, isActive, schoolId }) {
+        if (!schoolId) throw new BadRequestError('A school must be selected');
         const where = {
-            ...(schoolId ? { schoolId } : {}),
+            schoolId,
             ...(typeof isActive === 'boolean' ? { isActive } : {}),
             ...(streamId ? { enrollments: { some: { streamId, status: 'ACTIVE' } } } : {}),
             ...(search
                 ? {
-                    OR: [
-                        { firstName: { contains: search, mode: 'insensitive' } },
-                        { lastName: { contains: search, mode: 'insensitive' } },
-                        { admissionNo: { contains: search, mode: 'insensitive' } },
-                        { nationalIdNumber: { contains: search } },
-                        { birthCertificateNumber: { contains: search } },
-                    ],
-                }
+                      OR: [
+                          { firstName: { contains: search, mode: 'insensitive' } },
+                          { lastName: { contains: search, mode: 'insensitive' } },
+                          { admissionNo: { contains: search, mode: 'insensitive' } },
+                          { nationalIdNumber: { contains: search } },
+                          { birthCertificateNumber: { contains: search } },
+                      ],
+                  }
                 : {}),
         };
 
-        const [students, total] = await runTransaction([
+        const [students, total] = await Promise.all([
             prisma.student.findMany({
                 where,
                 select: studentSelect,
@@ -184,10 +199,11 @@ export class StudentService {
      * Fetch single student record.
      */
     static async getById(studentId, schoolId) {
+        if (!schoolId) throw new BadRequestError('A school must be selected');
         const student = await prisma.student.findFirst({
             where: {
                 id: studentId,
-                ...(schoolId ? { schoolId } : {}),
+                schoolId,
             },
             select: studentSelect,
         });
@@ -237,7 +253,18 @@ export class StudentService {
      * Link a parent to a student using StudentParent join table.
      */
     static async linkParent(studentId, parentId, actor) {
-        await this.getById(studentId, actor.schoolId);
+        const [student, parent] = await Promise.all([
+            prisma.student.findFirst({
+                where: { id: studentId, schoolId: actor.schoolId },
+                select: { id: true },
+            }),
+            prisma.parent.findFirst({
+                where: { id: parentId, schoolId: actor.schoolId },
+                select: { id: true },
+            }),
+        ]);
+        if (!student) throw new NotFoundError('Student profile not found');
+        if (!parent) throw new NotFoundError('Parent profile not found');
 
         const existingLink = await prisma.studentParent.findUnique({
             where: { studentId_parentId: { studentId, parentId } },
@@ -257,7 +284,16 @@ export class StudentService {
      * Remove link between parent and student.
      */
     static async unlinkParent(studentId, parentId, actor) {
-        await this.getById(studentId, actor.schoolId);
+        const link = await prisma.studentParent.findFirst({
+            where: {
+                studentId,
+                parentId,
+                student: { schoolId: actor.schoolId },
+                parent: { schoolId: actor.schoolId },
+            },
+            select: { studentId: true },
+        });
+        if (!link) throw new NotFoundError('Link record between student and parent not found');
 
         try {
             await prisma.studentParent.delete({

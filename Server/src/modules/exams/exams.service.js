@@ -1,11 +1,15 @@
 import { prisma, runTransaction } from '../../config/prisma.js';
 import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
 import { recordAudit } from '../../shared/audit.js';
+import { assertOwnership, resolveSchoolId } from '../../shared/ownership.js';
 
 export class ExamsService {
     static async createExam(payload, actor, { ipAddress, userAgent } = {}) {
-        const schoolId = actor.schoolId;
-        if (!schoolId) throw new BadRequestError('User context must belong to a school');
+        const schoolId = resolveSchoolId(actor);
+        await assertOwnership(prisma, schoolId, [
+            { model: 'term', id: payload.termId, label: 'Term' },
+            { model: 'subject', id: payload.subjectId, label: 'Subject' },
+        ]);
 
         const exam = await prisma.exam.create({
             data: {
@@ -33,12 +37,26 @@ export class ExamsService {
     }
 
     static async recordBulkResults(examId, results, actor, { ipAddress, userAgent } = {}) {
-        const schoolId = actor.schoolId;
+        const schoolId = resolveSchoolId(actor);
 
         const exam = await prisma.exam.findFirst({
             where: { id: examId, schoolId },
         });
         if (!exam) throw new NotFoundError('Exam not found');
+
+        const enrollmentIds = [...new Set(results.map((result) => result.enrollmentId))];
+        const enrollments = await prisma.enrollment.findMany({
+            where: { id: { in: enrollmentIds }, schoolId },
+            select: { id: true, studentId: true },
+        });
+        const enrollmentById = new Map(enrollments.map((item) => [item.id, item]));
+        if (
+            results.some(
+                (result) => enrollmentById.get(result.enrollmentId)?.studentId !== result.studentId,
+            )
+        ) {
+            throw new BadRequestError('Every result must reference a matching school enrollment');
+        }
 
         const processed = await runTransaction(async (tx) => {
             const ops = results.map((res) => {

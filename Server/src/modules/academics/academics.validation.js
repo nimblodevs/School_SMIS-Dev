@@ -53,6 +53,7 @@ const TermName = z
 
 export const createAcademicYearSchema = z
     .object({
+        schoolId: UuidString.optional(),
         name: AcademicYearName,
         startDate: IsoDateString,
         endDate: IsoDateString,
@@ -69,6 +70,7 @@ export const createAcademicYearSchema = z
 
 export const createTermSchema = z
     .object({
+        schoolId: UuidString.optional(),
         name: TermName,
         academicYearId: UuidString,
         startDate: IsoDateString,
@@ -84,6 +86,7 @@ export const createTermSchema = z
 // ---------------------------------------------------------------------------
 
 export const createClassLevelSchema = z.object({
+    schoolId: UuidString.optional(),
     name: TrimmedName,
     // curriculum is required — no silent KCSE default
     curriculum: CurriculumEnum,
@@ -94,6 +97,7 @@ export const createClassLevelSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export const createStreamSchema = z.object({
+    schoolId: UuidString.optional(),
     name: TrimmedName,
     classLevelId: UuidString,
 });
@@ -103,6 +107,7 @@ export const createStreamSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export const createSubjectSchema = z.object({
+    schoolId: UuidString.optional(),
     name: TrimmedName,
     code: SubjectCode,
     curriculum: CurriculumEnum,
@@ -113,11 +118,13 @@ export const createSubjectSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export const assignTeacherSubjectSchema = z.object({
+    schoolId: UuidString.optional(),
     teacherId: UuidString,
     subjectId: UuidString,
 });
 
 export const assignClassSubjectSchema = z.object({
+    schoolId: UuidString.optional(),
     streamId: UuidString,
     subjectId: UuidString,
     teacherId: UuidString,

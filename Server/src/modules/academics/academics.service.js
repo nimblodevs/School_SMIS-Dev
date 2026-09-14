@@ -8,7 +8,6 @@ import {
 import { assertOwnership, resolveSchoolId } from '../../shared/ownership.js';
 
 const MAX_WORKLOAD_ASSIGNMENTS = 12;
-const PROMOTION_BATCH_LIMIT = 500;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,7 +40,7 @@ export class AcademicsService {
         try {
             const result = await runTransaction(async (tx) => {
                 // Lock the school row so concurrent isCurrent:true writes serialize.
-                await tx.$queryRaw`SELECT id FROM schools WHERE id = ${schoolId}::uuid FOR UPDATE`;
+                await tx.$queryRaw`SELECT id FROM schools WHERE id = ${schoolId} FOR UPDATE`;
 
                 if (input.isCurrent) {
                     await tx.academicYear.updateMany({
@@ -382,7 +381,7 @@ export class AcademicsService {
 
                 // Serialize workload checks per teacher inside the transaction.
                 await tx.$queryRaw`
-          SELECT id FROM teachers WHERE id = ${teacherId}::uuid FOR UPDATE
+          SELECT id FROM teachers WHERE id = ${teacherId} AND "schoolId" = ${schoolId} FOR UPDATE
         `;
 
                 if (enforceWorkload) {

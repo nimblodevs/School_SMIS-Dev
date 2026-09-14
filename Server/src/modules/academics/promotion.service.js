@@ -1,6 +1,6 @@
-import { prisma, runTransaction } from '../../config/prisma.js';
+import { runTransaction } from '../../config/prisma.js';
 import { recordAudit } from '../../shared/audit.js';
-import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
+import { BadRequestError } from '../../shared/errors/AppError.js';
 import { assertOwnership, resolveSchoolId } from '../../shared/ownership.js';
 
 const PROMOTION_BATCH_LIMIT = 500;

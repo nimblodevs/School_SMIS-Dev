@@ -95,7 +95,7 @@ export class SchoolService {
                 ],
             } : {}),
         };
-        const [schools, total] = await runTransaction([
+        const [schools, total] = await Promise.all([
             prisma.school.findMany({ where, select: schoolSelect, orderBy: { name: 'asc' }, skip: (page - 1) * pageSize, take: pageSize }),
             prisma.school.count({ where }),
         ]);

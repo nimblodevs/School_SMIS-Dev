@@ -1,8 +1,8 @@
 import { Prisma } from '@prisma/client';
-import { prisma, runTransaction } from '../../config/prisma.js';
+import { runTransaction } from '../../config/prisma.js';
 import { BadRequestError } from '../../shared/errors/AppError.js';
 import { recordAudit } from '../../shared/audit.js';
-import { nextPayslipNo } from '../../shared/sequences.js';
+import { resolveSchoolId } from '../../shared/ownership.js';
 
 const D = (v) => new Prisma.Decimal(v);
 
@@ -13,7 +13,7 @@ export class PayrollService {
      * Refuses to re-run on APPROVED or PAID runs.
      */
     static async executePayrollRun({ year, month }, actor, ctx = {}) {
-        const schoolId = actor.schoolId;
+        const schoolId = resolveSchoolId(actor);
         if (!Number.isInteger(month) || month < 1 || month > 12) {
             throw new BadRequestError('month must be 1-12');
         }
@@ -23,16 +23,17 @@ export class PayrollService {
 
         const periodStart = new Date(Date.UTC(year, month - 1, 1));
         const periodEnd = new Date(Date.UTC(year, month, 0)); // last day of month
+        const period = `${year}-${String(month).padStart(2, '0')}`;
 
         return runTransaction(async (tx) => {
             const existing = await tx.payrollRun.findUnique({
-                where: { schoolId_year_month: { schoolId, year, month } },
+                where: { schoolId_month: { schoolId, month: period } },
                 include: { payslips: true },
             });
 
             if (existing && ['APPROVED', 'PAID'].includes(existing.status)) {
                 throw new BadRequestError(
-                    `Payroll for ${year}-${String(month).padStart(2, '0')} is ${existing.status} and locked`,
+                    `Payroll for ${period} is ${existing.status} and locked`,
                 );
             }
 
@@ -43,20 +44,48 @@ export class PayrollService {
                 })
                 : await tx.payrollRun.create({
                     data: {
-                        schoolId, year, month,
-                        periodStart, periodEnd,
+                        schoolId,
+                        month: period,
                         status: 'PROCESSING',
                         processedById: actor.id,
                         processedAt: new Date(),
                     },
                 });
 
-            await tx.payrollRunEvent.create({
-                data: {
-                    schoolId, payrollRunId: run.id,
-                    fromStatus: existing?.status ?? null, toStatus: 'PROCESSING',
-                    actorId: actor.id,
-                    notes: 'Payroll run started',
+            // A draft run may be recalculated. Reverse only the loan repayments
+            // created by this run before calculating the replacement payslips.
+            const repaymentReferencePrefix = `PAYROLL:${run.id}:`;
+            const previousRepayments = await tx.loanRepayment.findMany({
+                where: {
+                    schoolId,
+                    paymentMethod: 'PAYROLL_DEDUCTION',
+                    reference: { startsWith: repaymentReferencePrefix },
+                },
+            });
+            for (const repayment of previousRepayments) {
+                const loan = await tx.employeeSalaryLoan.findFirst({
+                    where: { id: repayment.loanId, schoolId },
+                    select: { amount: true, balance: true },
+                });
+                if (!loan) continue;
+
+                const restoredBalance = Prisma.Decimal.min(
+                    loan.amount,
+                    loan.balance.plus(repayment.amount),
+                );
+                await tx.employeeSalaryLoan.update({
+                    where: { id: repayment.loanId },
+                    data: {
+                        balance: restoredBalance,
+                        status: restoredBalance.eq(loan.amount) ? 'ACTIVE' : 'PARTIALLY_PAID',
+                    },
+                });
+            }
+            await tx.loanRepayment.deleteMany({
+                where: {
+                    schoolId,
+                    paymentMethod: 'PAYROLL_DEDUCTION',
+                    reference: { startsWith: repaymentReferencePrefix },
                 },
             });
 
@@ -78,21 +107,13 @@ export class PayrollService {
             ];
 
             // ---- 2. Preload reference data ----
-            const [baseSalaries, allowances, statutory, loans, customDeds] = await Promise.all([
-                tx.baseSalary.findMany({
+            const [salaryStructures, statutory, loans, customDeds] = await Promise.all([
+                tx.salaryStructure.findMany({
                     where: {
                         schoolId,
                         effectiveDate: { lte: periodEnd },
-                        OR: [{ endDate: null }, { endDate: { gte: periodStart } }],
                     },
                     orderBy: { effectiveDate: 'desc' },
-                }),
-                tx.employeeAllowance.findMany({
-                    where: {
-                        schoolId,
-                        effectiveDate: { lte: periodEnd },
-                        OR: [{ endDate: null }, { endDate: { gte: periodStart } }],
-                    },
                     include: { allowanceType: true },
                 }),
                 tx.statutoryDeduction.findMany({
@@ -113,23 +134,18 @@ export class PayrollService {
                     where: {
                         schoolId,
                         effectiveDate: { lte: periodEnd },
-                        OR: [{ endDate: null }, { endDate: { gte: periodStart } }],
                     },
                 }),
             ]);
 
             // ---- 3. Build per-employee lookup maps ----
-            const baseByEmp = new Map();
-            for (const bs of baseSalaries) {
-                const key = bs.teacherId ? `T:${bs.teacherId}` : `S:${bs.staffId}`;
-                if (!baseByEmp.has(key)) baseByEmp.set(key, bs); // first = latest due to orderBy desc
-            }
-
-            const allowByEmp = new Map();
-            for (const a of allowances) {
-                const key = a.teacherId ? `T:${a.teacherId}` : `S:${a.staffId}`;
-                if (!allowByEmp.has(key)) allowByEmp.set(key, []);
-                allowByEmp.get(key).push(a);
+            const salaryByEmp = new Map();
+            for (const structure of salaryStructures) {
+                const key = structure.teacherId
+                    ? `T:${structure.teacherId}`
+                    : `S:${structure.staffId}`;
+                if (!salaryByEmp.has(key)) salaryByEmp.set(key, []);
+                salaryByEmp.get(key).push(structure);
             }
 
             const loanByEmp = new Map();
@@ -148,7 +164,6 @@ export class PayrollService {
 
             // ---- 4. Compute payslips ----
             let totalGross = D(0);
-            let totalDeductions = D(0);
             let totalNet = D(0);
             const payslipRows = [];
 
@@ -156,18 +171,23 @@ export class PayrollService {
                 const key = emp.employeeKey; // "T:<id>" or "S:<id>"
                 if (!key) continue; // skip employees without an EmployeeNumber row
 
-                const base = baseByEmp.get(key);
-                if (!base) continue; // no salary configured — skip, don't pay zero
+                const structures = salaryByEmp.get(key) ?? [];
+                if (!structures.length) continue; // no salary configured — skip, don't pay zero
 
-                const basicPay = base.amount;
-                const empAllowances = allowByEmp.get(key) ?? [];
-                const allowancesTotal = empAllowances.reduce(
-                    (sum, a) => sum.plus(a.amount ?? a.allowanceType.amount),
+                const basicPay = structures[0].baseSalary;
+                const latestAllowanceByType = new Map();
+                for (const structure of structures) {
+                    if (structure.allowanceTypeId && !latestAllowanceByType.has(structure.allowanceTypeId)) {
+                        latestAllowanceByType.set(structure.allowanceTypeId, structure.allowanceType);
+                    }
+                }
+                const allowancesTotal = [...latestAllowanceByType.values()].reduce(
+                    (sum, allowance) => sum.plus(allowance.amount),
                     D(0),
                 );
                 const grossPay = basicPay.plus(allowancesTotal);
 
-                // Statutory (progressive + flat)
+                // Statutory deductions use progressive rate brackets.
                 const statutoryTotal = statutory.reduce((sum, ded) => {
                     return sum.plus(PayrollService._computeStatutory(ded, grossPay, periodEnd));
                 }, D(0));
@@ -200,19 +220,12 @@ export class PayrollService {
                     teacherId: emp.teacherId,
                     staffId: emp.staffId,
                     basicPay,
-                    allowancesTotal,
                     grossPay,
-                    statutoryTotal,
-                    customTotal,
-                    loanTotal,
                     totalDeductions: deductionsTotal,
                     netPay,
-                    currency: 'KES',
-                    payslipNo: await nextPayslipNo(tx, schoolId),
                 });
 
                 totalGross = totalGross.plus(grossPay);
-                totalDeductions = totalDeductions.plus(deductionsTotal);
                 totalNet = totalNet.plus(netPay);
             }
 
@@ -240,30 +253,20 @@ export class PayrollService {
                             amount: applied,
                             paymentDate: periodEnd,
                             paymentMethod: 'PAYROLL_DEDUCTION',
+                            reference: `${repaymentReferencePrefix}${l.id}`,
                             notes: `Auto-deduction for ${year}-${String(month).padStart(2, '0')}`,
                         },
                     });
                 }
             }
 
-            // ---- 7. Finalize run ----
+            // ---- 7. Return to DRAFT so a separate approval flow can lock the run ----
             const finalRun = await tx.payrollRun.update({
                 where: { id: run.id },
                 data: {
-                    status: 'PENDING_APPROVAL',
+                    status: 'DRAFT',
                     totalGross,
-                    totalDeductions,
                     totalNet,
-                    employeeCount: payslipRows.length,
-                },
-            });
-
-            await tx.payrollRunEvent.create({
-                data: {
-                    schoolId, payrollRunId: run.id,
-                    fromStatus: 'PROCESSING', toStatus: 'PENDING_APPROVAL',
-                    actorId: actor.id,
-                    metadata: { totalGross: totalGross.toString(), totalNet: totalNet.toString() },
                 },
             });
 
@@ -287,9 +290,7 @@ export class PayrollService {
     /**
      * Compute a single statutory deduction.
      *
-     * For PROGRESSIVE (PAYE): sum over brackets: slice * rate + fixedAmount.
-     * For FLAT_RATE (NSSF/SHIF): rate * min(gross, cap) + fixedAmount.
-     * For FIXED: fixedAmount.
+     * Sum each configured salary bracket's percentage and fixed amount.
      */
     static _computeStatutory(deduction, grossPay, periodEnd) {
         // Pick the config valid on periodEnd (latest effectiveFrom <= periodEnd)
@@ -298,17 +299,6 @@ export class PayrollService {
             .filter((c) => !c.effectiveTo || new Date(c.effectiveTo) >= periodEnd)
             .sort((a, b) => new Date(b.effectiveFrom) - new Date(a.effectiveFrom));
 
-        // For FLAT_RATE / FIXED, only one config applies
-        if (deduction.calculationType !== 'PROGRESSIVE') {
-            const cfg = configs.find((c) => D(c.minSalary).lte(grossPay) &&
-                (!c.maxSalary || D(c.maxSalary).gte(grossPay)));
-            if (!cfg) return D(0);
-            if (deduction.calculationType === 'FIXED') return D(cfg.fixedAmount ?? 0);
-            return grossPay.mul(cfg.rate).plus(cfg.fixedAmount ?? 0);
-        }
-
-        // PROGRESSIVE: sum across all brackets up to grossPay
-        let remaining = grossPay;
         let total = D(0);
         const brackets = configs
             .filter((c) => D(c.minSalary).lt(grossPay))

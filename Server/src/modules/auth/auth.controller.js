@@ -186,7 +186,7 @@ export class AuthController {
             const page = Math.max(1, Number.parseInt(req.query.page ?? '1', 10));
             const pageSize = Math.min(100, Math.max(1, Number.parseInt(req.query.pageSize ?? '50', 10)));
             const result = await AuthService.listUsers({
-                schoolId: req.user.role === 'SUPER_ADMIN' ? req.query.schoolId : req.user.schoolId,
+                schoolId: req.user.schoolId,
                 role: req.query.role,
                 search: req.query.search,
                 page,

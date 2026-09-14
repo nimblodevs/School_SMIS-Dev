@@ -1,5 +1,6 @@
 import { prisma } from '../../config/prisma.js';
-import { NotFoundError, ForbiddenError, BadRequestError } from '../../shared/errors/AppError.js';
+import { NotFoundError, ForbiddenError } from '../../shared/errors/AppError.js';
+import { resolveSchoolId } from '../../shared/ownership.js';
 
 // Ordinal levels. We do NOT average these; we report distributions.
 const CBC_LEVELS = [
@@ -63,8 +64,7 @@ export class ReportCardService {
      */
     static async generateTermReports(termId, actor, options = {}) {
         const { studentId = null, rankBy = 'STREAM' } = options;
-        const schoolId = actor.schoolId;
-        if (!schoolId) throw new ForbiddenError('User is not associated with a school');
+        const schoolId = resolveSchoolId(actor);
 
         const term = await prisma.term.findFirst({
             where: { id: termId, schoolId },
@@ -77,14 +77,14 @@ export class ReportCardService {
         if (visibleStudentIds !== null && studentId && !visibleStudentIds.includes(studentId)) {
             throw new ForbiddenError('You do not have access to this student');
         }
-        const effectiveStudentIds =
+        const outputStudentIds =
             visibleStudentIds === null
                 ? studentId
                     ? [studentId]
                     : null
                 : studentId
-                    ? [studentId]
-                    : visibleStudentIds;
+                  ? [studentId]
+                  : visibleStudentIds;
 
         // ---- Fetch enrollments ----
         const enrollmentWhere = {
@@ -92,23 +92,22 @@ export class ReportCardService {
             academicYearId: term.academicYearId,
             status: { in: ['ACTIVE', 'COMPLETED'] }, // include those who finished mid-year
         };
-        if (effectiveStudentIds !== null) {
-            enrollmentWhere.studentId = { in: effectiveStudentIds };
-        }
-
         const enrollments = await prisma.enrollment.findMany({
             where: enrollmentWhere,
             include: { student: true, stream: { include: { classLevel: true } } },
         });
 
-        if (studentId && enrollments.length === 0) {
-            throw new NotFoundError('Student is not enrolled in this academic year');
-        }
-
         const enrollmentIds = enrollments.map((e) => e.id);
         if (enrollmentIds.length === 0) {
+            if (studentId) {
+                throw new NotFoundError('Student is not enrolled in this academic year');
+            }
             return {
-                term: { id: term.id, name: term.name, academicYear: term.academicYear.name },
+                term: {
+                    id: term.id,
+                    name: term.name,
+                    academicYear: term.academicYear.name,
+                },
                 classSize: 0,
                 reports: [],
             };
@@ -132,7 +131,9 @@ export class ReportCardService {
                 },
                 orderBy: { assessedAt: 'desc' },
                 include: {
-                    subStrand: { include: { strand: { include: { learningArea: true } } } },
+                    subStrand: {
+                        include: { strand: { include: { learningArea: true } } },
+                    },
                 },
             }),
         ]);
@@ -181,9 +182,7 @@ export class ReportCardService {
                 assessmentCount: bucket.scores.length,
             }));
 
-            const subjectAverages = subjects
-                .map((s) => s.average)
-                .filter((v) => v !== null);
+            const subjectAverages = subjects.map((s) => s.average).filter((v) => v !== null);
 
             // CBC: report distribution, not a meaningless average of ordinals
             const cbcByLearningArea = new Map();
@@ -218,9 +217,7 @@ export class ReportCardService {
 
         // ---- Ranking ----
         const groupKey = (report) =>
-            rankBy === 'CLASS_LEVEL'
-                ? report.enrollment.classLevel
-                : report.enrollment.streamId;
+            rankBy === 'CLASS_LEVEL' ? report.enrollment.classLevel : report.enrollment.streamId;
 
         const groups = new Map();
         for (const report of reports) {
@@ -254,12 +251,20 @@ export class ReportCardService {
         }
 
         // ---- Optional student filter for output ----
-        const output = studentId
-            ? reports.filter((r) => r.student.id === studentId)
-            : reports;
+        const output =
+            outputStudentIds === null
+                ? reports
+                : reports.filter((report) => outputStudentIds.includes(report.student.id));
+        if (studentId && output.length === 0) {
+            throw new NotFoundError('Student is not enrolled in this academic year');
+        }
 
         return {
-            term: { id: term.id, name: term.name, academicYear: term.academicYear.name },
+            term: {
+                id: term.id,
+                name: term.name,
+                academicYear: term.academicYear.name,
+            },
             rankBy,
             classSize: reports.length, // full population, not filtered
             reports: output,

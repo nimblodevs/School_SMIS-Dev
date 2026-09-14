@@ -5,7 +5,6 @@ import { OAuth2Client } from 'google-auth-library';
 import { prisma, runTransaction } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
 import { recordAudit } from '../../shared/audit.js';
-import { logger } from '../../config/logger.js';
 import { sendLoginOtp, sendPasswordResetOtp } from '../../shared/email.js';
 import { UnauthorizedError, NotFoundError } from '../../shared/errors/AppError.js';
 
@@ -77,8 +76,13 @@ export class AuthService {
      * Authenticate user and enforce Single Device Session
      */
     static async login({ username, email, password, userAgent, ipAddress }) {
+        const identities = [username ? { username } : null, email ? { email } : null].filter(Boolean);
+        if (identities.length === 0) {
+            throw new UnauthorizedError('Invalid email or password');
+        }
+
         const user = await prisma.user.findFirst({
-            where: { username, email },
+            where: { OR: identities },
             include: {
                 school: {
                     select: {
@@ -177,7 +181,7 @@ export class AuthService {
         }
 
         const otp = String(randomInt(100000, 1000000));
-        const loginChallenge = await prisma.passwordResetOtp.create({
+        await prisma.passwordResetOtp.create({
             data: {
                 userId: user.id,
                 codeHash: this.hashToken(otp),
@@ -459,12 +463,13 @@ export class AuthService {
     }
 
     static async listUsers({ schoolId, role, search, page = 1, pageSize = 50 }) {
+        if (!schoolId) throw new UnauthorizedError('A school must be selected');
         const where = {
-            ...(schoolId ? { schoolId } : {}),
+            schoolId,
             ...(role ? { role } : {}),
             ...(search ? { OR: [{ email: { contains: search, mode: 'insensitive' } }, { phone: { contains: search, mode: 'insensitive' } }] } : {}),
         };
-        const [users, total] = await runTransaction([
+        const [users, total] = await Promise.all([
             prisma.user.findMany({
                 where,
                 select: { id: true, email: true, phone: true, role: true, schoolId: true, isActive: true, mustChangePassword: true, authProvider: true, lastLoginAt: true, createdAt: true },
@@ -497,9 +502,12 @@ export class AuthService {
     }
 
     static async startImpersonation(actor, targetUserId, { ipAddress, userAgent } = {}) {
+        if (!actor.schoolId) {
+            throw new UnauthorizedError('A school must be selected before starting support access');
+        }
         const target = await prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true, email: true, role: true, schoolId: true, isActive: true } });
         if (!target || !target.isActive || !['TEACHER', 'PARENT', 'STUDENT'].includes(target.role)) throw new UnauthorizedError('Target user is not eligible for support access');
-        if (actor.role !== 'SUPER_ADMIN' && target.schoolId !== actor.schoolId) {
+        if (target.schoolId !== actor.schoolId) {
             throw new UnauthorizedError('Support access is limited to users in your school');
         }
         const tokens = await this.issueTokens(target, {
@@ -511,7 +519,7 @@ export class AuthService {
             actorSessionId: actor.sessionId,
             refreshUserId: actor.id,
         });
-        await recordAudit({ action: 'IMPERSONATION_STARTED', actorId: actor.id, schoolId: actor.schoolId, entityType: 'User', entityId: target.id, ipAddress, userAgent, metadata: { targetRole: target.role } });
+        await recordAudit({ action: 'IMPERSONATION_STARTED', actorId: actor.id, schoolId: target.schoolId, entityType: 'User', entityId: target.id, ipAddress, userAgent, metadata: { targetRole: target.role } });
         return { ...tokens, user: target };
     }
 

@@ -1,11 +1,11 @@
 import { prisma, runTransaction } from '../../config/prisma.js';
 import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
 import { recordAudit } from '../../shared/audit.js';
+import { resolveSchoolId } from '../../shared/ownership.js';
 
 export class AttendanceService {
     static async markClassAttendance({ date, streamId, attendances }, actor, { ipAddress, userAgent } = {}) {
-        const schoolId = actor.schoolId;
-        if (!schoolId) throw new BadRequestError('User context must belong to a school');
+        const schoolId = resolveSchoolId(actor);
 
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) {
             throw new BadRequestError('date must use YYYY-MM-DD format');
@@ -73,6 +73,7 @@ export class AttendanceService {
     }
 
     static async getAttendanceRegister({ streamId, date }, schoolId) {
+        if (!schoolId) throw new BadRequestError('A school must be selected');
         return prisma.attendance.findMany({
             where: {
                 schoolId,

@@ -38,7 +38,7 @@ export class StudentController {
                 search,
                 streamId,
                 isActive,
-                schoolId: req.user.role === 'SUPER_ADMIN' ? req.query.schoolId : req.user.schoolId,
+                schoolId: req.user.schoolId,
             });
 
             return res.status(200).json({
@@ -58,8 +58,7 @@ export class StudentController {
 
     static async getById(req, res, next) {
         try {
-            const schoolId = req.user.role === 'SUPER_ADMIN' ? null : req.user.schoolId;
-            const student = await StudentService.getById(req.params.id, schoolId);
+            const student = await StudentService.getById(req.params.id, req.user.schoolId);
             return res.status(200).json({ success: true, data: student });
         } catch (error) {
             next(error);

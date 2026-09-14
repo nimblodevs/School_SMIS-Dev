@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 const GenderEnum = z.enum(['MALE', 'FEMALE', 'OTHER']);
-const RelationEnum = z.enum(['MOTHER', 'FATHER', 'GUARDIAN']);
 
 export const createStudentSchema = z.object({
     firstName: z.string().min(1, 'First name is required'),

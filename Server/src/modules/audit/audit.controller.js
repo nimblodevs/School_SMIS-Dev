@@ -11,12 +11,12 @@ export class AuditController {
                 throw new BadRequestError('page must be >= 1 and pageSize must be between 1 and 100');
             }
 
-            const where = { schoolId: req.user.role === 'SUPER_ADMIN' ? undefined : req.user.schoolId };
+            const where = req.user.schoolId ? { schoolId: req.user.schoolId } : {};
             if (req.query.action) where.action = req.query.action;
             if (req.query.entityType) where.entityType = req.query.entityType;
             if (req.query.actorId) where.actorId = req.query.actorId;
 
-            const [items, total] = await prisma.$transaction([
+            const [items, total] = await Promise.all([
                 prisma.auditLog.findMany({
                     where,
                     orderBy: { createdAt: 'desc' },

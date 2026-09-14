@@ -8,6 +8,7 @@ import {
 } from '../../shared/errors/AppError.js';
 import { recordAudit } from '../../shared/audit.js';
 import { nextCreditNoteNo } from '../../shared/sequences.js';
+import { resolveSchoolId } from '../../shared/ownership.js';
 
 const D = (v) => new Prisma.Decimal(v);
 const ZERO = D(0);
@@ -39,15 +40,6 @@ function accountForMethod(method) {
     }
 }
 
-function accountTypeForCode(code) {
-    if (code.startsWith('1')) return 'ASSET';
-    if (code.startsWith('2')) return 'LIABILITY';
-    if (code.startsWith('3')) return 'EQUITY';
-    if (code.startsWith('4')) return 'REVENUE';
-    if (code.startsWith('5')) return 'EXPENSE';
-    return 'ASSET';
-}
-
 export class RefundService {
     // ============================================================
     // 1. REVERSE A PAYMENT
@@ -68,7 +60,7 @@ export class RefundService {
      * Idempotent on idempotencyKey.
      */
     static async reversePayment(paymentId, { reason, notes, idempotencyKey } = {}, actor, ctx = {}) {
-        const schoolId = actor.schoolId;
+        const schoolId = resolveSchoolId(actor);
         if (!reason) throw new BadRequestError('reason is required');
 
         return runTransaction(async (tx) => {
@@ -82,7 +74,7 @@ export class RefundService {
                 );
                 if (claimed.existing) {
                     const creditNote = await tx.creditNote.findUnique({
-                        where: { id: claimed.resultId },
+                        where: { id: claimed.resultId, schoolId },
                     });
                     return { creditNote, reversedAllocationCount: 0, idempotent: true };
                 }
@@ -92,7 +84,7 @@ export class RefundService {
             const [payment] = await tx.$queryRaw`
         SELECT id, "schoolId" AS school_id, "studentId" AS student_id, amount, status, method
         FROM payments
-        WHERE id = ${paymentId}
+        WHERE id = ${paymentId} AND "schoolId" = ${schoolId}
         FOR UPDATE
       `;
             if (!payment || payment.school_id !== schoolId) {
@@ -114,14 +106,16 @@ export class RefundService {
 
             // ---- Reverse active allocations ----
             const allocations = await tx.paymentAllocation.findMany({
-                where: { paymentId, status: 'ACTIVE' },
+                where: { schoolId, paymentId, status: 'ACTIVE' },
             });
 
             const affectedInvoiceIds = new Set();
             for (const alloc of allocations) {
                 // Lock the invoice before touching its derived state
                 await tx.$queryRaw`
-          SELECT id FROM invoices WHERE id = ${alloc.invoiceId} FOR UPDATE
+          SELECT id FROM invoices
+          WHERE id = ${alloc.invoiceId} AND "schoolId" = ${schoolId}
+          FOR UPDATE
         `;
                 await tx.paymentAllocation.update({
                     where: { id: alloc.id },
@@ -170,7 +164,7 @@ export class RefundService {
 
             // ---- Recompute affected invoices ----
             for (const invoiceId of affectedInvoiceIds) {
-                await RefundService._recomputeInvoiceStatus(tx, invoiceId);
+                await RefundService._recomputeInvoiceStatus(tx, schoolId, invoiceId);
             }
 
             await recordAudit(
@@ -233,7 +227,7 @@ export class RefundService {
         actor,
         ctx = {},
     ) {
-        const schoolId = actor.schoolId;
+        const schoolId = resolveSchoolId(actor);
         const refundAmount = D(amount ?? 0);
         if (refundAmount.lte(0)) throw new BadRequestError('amount must be positive');
 
@@ -248,7 +242,7 @@ export class RefundService {
                 );
                 if (claimed.existing) {
                     const refund = await tx.paymentRefund.findUnique({
-                        where: { id: claimed.resultId },
+                        where: { id: claimed.resultId, schoolId },
                     });
                     return { refund, idempotent: true };
                 }
@@ -258,7 +252,7 @@ export class RefundService {
             const [payment] = await tx.$queryRaw`
         SELECT id, "schoolId" AS school_id, "studentId" AS student_id, amount, status, method
         FROM payments
-        WHERE id = ${paymentId}
+        WHERE id = ${paymentId} AND "schoolId" = ${schoolId}
         FOR UPDATE
       `;
             if (!payment || payment.school_id !== schoolId) {
@@ -273,6 +267,7 @@ export class RefundService {
             // ---- Lock student & check credit ----
             const creditBalance = await RefundService._computeCreditBalance(
                 tx,
+                schoolId,
                 payment.student_id,
                 { lock: true },
             );
@@ -299,10 +294,13 @@ export class RefundService {
             });
 
             // ---- Consume credit FIFO ----
-            await RefundService._consumeCreditFIFO(tx, payment.student_id, refundAmount, {
-                invoiceId: null,
-                actor,
-            });
+            await RefundService._consumeCreditFIFO(
+                tx,
+                schoolId,
+                payment.student_id,
+                refundAmount,
+                { invoiceId: null, actor },
+            );
 
             // ---- Ledger: settle liability, cash leaves ----
             await RefundService._postLedgerPair(tx, {
@@ -379,7 +377,7 @@ export class RefundService {
         actor,
         ctx = {},
     ) {
-        const schoolId = actor.schoolId;
+        const schoolId = resolveSchoolId(actor);
         const applyAmount = D(amount);
         if (applyAmount.lte(0)) throw new BadRequestError('amount must be positive');
 
@@ -401,7 +399,7 @@ export class RefundService {
             const [invoice] = await tx.$queryRaw`
         SELECT id, "schoolId" AS school_id, "studentId" AS student_id, status
         FROM invoices
-        WHERE id = ${invoiceId}
+        WHERE id = ${invoiceId} AND "schoolId" = ${schoolId}
         FOR UPDATE
       `;
             if (!invoice || invoice.school_id !== schoolId) {
@@ -415,9 +413,12 @@ export class RefundService {
             }
 
             // ---- Lock student & check credit ----
-            const creditBalance = await RefundService._computeCreditBalance(tx, studentId, {
-                lock: true,
-            });
+            const creditBalance = await RefundService._computeCreditBalance(
+                tx,
+                schoolId,
+                studentId,
+                { lock: true },
+            );
             if (creditBalance.lt(applyAmount)) {
                 throw new BadRequestError(
                     `Insufficient credit: requested ${applyAmount}, available ${creditBalance}`,
@@ -425,7 +426,11 @@ export class RefundService {
             }
 
             // ---- Check invoice outstanding ----
-            const outstanding = await RefundService._computeInvoiceOutstanding(tx, invoiceId);
+            const outstanding = await RefundService._computeInvoiceOutstanding(
+                tx,
+                schoolId,
+                invoiceId,
+            );
             if (applyAmount.gt(outstanding)) {
                 throw new BadRequestError(
                     `Apply amount ${applyAmount} exceeds invoice outstanding ${outstanding}`,
@@ -433,7 +438,7 @@ export class RefundService {
             }
 
             // ---- Consume credit FIFO ----
-            await RefundService._consumeCreditFIFO(tx, studentId, applyAmount, {
+            await RefundService._consumeCreditFIFO(tx, schoolId, studentId, applyAmount, {
                 invoiceId,
                 actor,
             });
@@ -451,7 +456,7 @@ export class RefundService {
             });
 
             // ---- Recompute invoice status ----
-            await RefundService._recomputeInvoiceStatus(tx, invoiceId);
+            await RefundService._recomputeInvoiceStatus(tx, schoolId, invoiceId);
 
             await recordAudit(
                 {
@@ -492,18 +497,18 @@ export class RefundService {
      * Recomputes an invoice's status from derived data.
      * Caller MUST already hold a lock on the invoice row.
      */
-    static async _recomputeInvoiceStatus(tx, invoiceId) {
+    static async _recomputeInvoiceStatus(tx, schoolId, invoiceId) {
         const [row] = await tx.$queryRaw`
       SELECT
                 i."status" AS current_status,
                 i."dueDate" AS due_date,
                 i."amountDue" AS total_due,
                 COALESCE((SELECT SUM("amount") FROM credit_note_applications
-                                    WHERE "invoiceId" = i.id AND "status" = 'ACTIVE'), 0) AS total_credited,
+                                    WHERE "invoiceId" = i.id AND "schoolId" = ${schoolId} AND "status" = 'ACTIVE'), 0) AS total_credited,
                 COALESCE((SELECT SUM("amount") FROM payment_allocations
-                                    WHERE "invoiceId" = i.id AND "status" = 'ACTIVE'), 0) AS total_paid
+                                    WHERE "invoiceId" = i.id AND "schoolId" = ${schoolId} AND "status" = 'ACTIVE'), 0) AS total_paid
       FROM invoices i
-            WHERE i.id = ${invoiceId}
+            WHERE i.id = ${invoiceId} AND i."schoolId" = ${schoolId}
     `;
         if (!row) return;
         if (['DRAFT', 'CANCELLED', 'WRITTEN_OFF'].includes(row.current_status)) return;
@@ -532,14 +537,14 @@ export class RefundService {
     /**
      * Computes invoice outstanding (net of lines, waivers, credits, active payments).
      */
-    static async _computeInvoiceOutstanding(tx, invoiceId) {
+    static async _computeInvoiceOutstanding(tx, schoolId, invoiceId) {
         const [row] = await tx.$queryRaw`
       SELECT
-        (SELECT "amountDue" FROM invoices WHERE id = ${invoiceId})
+        (SELECT "amountDue" FROM invoices WHERE id = ${invoiceId} AND "schoolId" = ${schoolId})
         - COALESCE((SELECT SUM("amount") FROM credit_note_applications
-                WHERE "invoiceId" = ${invoiceId} AND "status" = 'ACTIVE'), 0)
+                WHERE "invoiceId" = ${invoiceId} AND "schoolId" = ${schoolId} AND "status" = 'ACTIVE'), 0)
         - COALESCE((SELECT SUM("amount") FROM payment_allocations
-                WHERE "invoiceId" = ${invoiceId} AND "status" = 'ACTIVE'), 0)
+                WHERE "invoiceId" = ${invoiceId} AND "schoolId" = ${schoolId} AND "status" = 'ACTIVE'), 0)
         AS outstanding
     `;
         return D(row.outstanding);
@@ -555,10 +560,12 @@ export class RefundService {
      * Pass `{ lock: true }` to serialize concurrent credit consumption
      * (locks the student row).
      */
-    static async _computeCreditBalance(tx, studentId, { lock = false } = {}) {
+    static async _computeCreditBalance(tx, schoolId, studentId, { lock = false } = {}) {
         if (lock) {
             await tx.$queryRaw`
-        SELECT id FROM students WHERE id = ${studentId} FOR UPDATE
+        SELECT id FROM students
+        WHERE id = ${studentId} AND "schoolId" = ${schoolId}
+        FOR UPDATE
       `;
         }
 
@@ -566,11 +573,14 @@ export class RefundService {
       SELECT
         COALESCE((SELECT SUM(amount) FROM credit_notes
                   WHERE "studentId" = ${studentId}
+                    AND "schoolId" = ${schoolId}
                     AND status IN ('ISSUED','PARTIALLY_APPLIED')), 0)
                 - COALESCE((SELECT SUM("amount") FROM credit_note_applications
                                         WHERE "creditNoteId" IN (
                                                 SELECT id FROM credit_notes WHERE "studentId" = ${studentId}
+                                                  AND "schoolId" = ${schoolId}
                                         )
+                                        AND "schoolId" = ${schoolId}
                                         AND "status" = 'ACTIVE'), 0)
         AS balance
     `;
@@ -583,12 +593,13 @@ export class RefundService {
      *
      * Caller MUST already hold the student lock (via _computeCreditBalance with lock: true).
      */
-    static async _consumeCreditFIFO(tx, studentId, amount, { invoiceId, actor }) {
+    static async _consumeCreditFIFO(tx, schoolId, studentId, amount, { invoiceId, actor }) {
         let remaining = D(amount);
 
         const notes = await tx.creditNote.findMany({
             where: {
                 studentId,
+                schoolId,
                 status: { in: ['ISSUED', 'PARTIALLY_APPLIED'] },
             },
             orderBy: { createdAt: 'asc' },
@@ -602,6 +613,7 @@ export class RefundService {
         SELECT COALESCE(SUM(amount), 0) AS consumed
         FROM credit_note_applications
         WHERE "creditNoteId" = ${note.id}
+          AND "schoolId" = ${schoolId}
           AND status = 'ACTIVE'
       `;
             const consumed = D(consumedRow.consumed);
@@ -614,13 +626,17 @@ export class RefundService {
             let before = ZERO;
             let after = ZERO;
             if (invoiceId) {
-                before = await RefundService._computeInvoiceOutstanding(tx, invoiceId);
+                before = await RefundService._computeInvoiceOutstanding(
+                    tx,
+                    schoolId,
+                    invoiceId,
+                );
                 after = before.minus(take);
             }
 
             await tx.creditNoteApplication.create({
                 data: {
-                    schoolId: note.schoolId,
+                    schoolId,
                     creditNoteId: note.id,
                     invoiceId: invoiceId ?? null,
                     amount: take,
@@ -662,7 +678,7 @@ export class RefundService {
         referenceType,
         referenceId,
         narration,
-        postedById,
+        postedById: _postedById,
     }) {
         const entryDate = new Date();
         await tx.ledgerEntry.createMany({
