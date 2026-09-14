@@ -27,7 +27,8 @@ export const authenticate = async (req, res, next) => {
 
         let decoded;
         try {
-            decoded = jwt.verify(token, env.JWT_SECRET, {
+            decoded = jwt.verify(token, env.JWT_PUBLIC_KEY, {
+                algorithms: ['RS256'],
                 issuer: env.JWT_ISSUER,
                 audience: env.JWT_AUDIENCE,
             });
@@ -65,9 +66,9 @@ export const authenticate = async (req, res, next) => {
         // For normal tokens, it's the subject themselves.
         const sessionOwner = isImpersonated
             ? await prisma.user.findUnique({
-                  where: { id: decoded.actorId ?? '' },
-                  select: { id: true, currentSessionId: true, isActive: true },
-              })
+                where: { id: decoded.actorId ?? '' },
+                select: { id: true, currentSessionId: true, isActive: true },
+            })
             : user;
 
         const expectedSessionId = isImpersonated ? decoded.actorSessionId : decoded.sessionId;

@@ -49,10 +49,14 @@ Create a `.env` file in this directory with the required runtime variables, for 
 NODE_ENV=development
 PORT=4000
 DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE?schema=public"
-JWT_SECRET="your-secret-key"
+JWT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYOUR_PRIVATE_RSA_KEY\n-----END PRIVATE KEY-----"
+JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\nYOUR_PUBLIC_RSA_KEY\n-----END PUBLIC KEY-----"
+JWT_EXPIRES_IN="10m"
+JWT_ISSUER="school-smis-api"
+JWT_AUDIENCE="school-smis-client"
 ```
 
-Additional auth, email, storage, or integration variables may be required depending on the environment and deployed features.
+Additional auth, email, storage, or integration variables may be required depending on the environment and deployed features. Generate an RSA key pair with `openssl genrsa -out jwt-private.pem 2048` and `openssl rsa -in jwt-private.pem -pubout -out jwt-public.pem`, then provide the PEM contents through the two JWT variables.
 
 ## Local setup
 
@@ -113,6 +117,8 @@ npm test
 ## Security and tenancy notes
 
 The backend is designed for multi-tenant operation. School-scoped access is enforced through request context and Prisma tenant scoping rather than relying on ad hoc filters in individual handlers.
+
+Access tokens use `RS256`: the API signs with `JWT_PRIVATE_KEY`, while API services verify with `JWT_PUBLIC_KEY`. Keep the private key only in the signing service and distribute the public key to verification-only services. In production, both keys are required.
 
 ## License
 

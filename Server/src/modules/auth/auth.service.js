@@ -23,8 +23,9 @@ export class AuthService {
                 sessionId,
                 ...extraClaims,
             },
-            env.JWT_SECRET,
+            env.JWT_PRIVATE_KEY,
             {
+                algorithm: 'RS256',
                 expiresIn: env.JWT_EXPIRES_IN,
                 issuer: env.JWT_ISSUER,
                 audience: env.JWT_AUDIENCE,
@@ -616,11 +617,11 @@ export class AuthService {
             ...(role ? { role } : {}),
             ...(search
                 ? {
-                      OR: [
-                          { email: { contains: search, mode: 'insensitive' } },
-                          { phone: { contains: search, mode: 'insensitive' } },
-                      ],
-                  }
+                    OR: [
+                        { email: { contains: search, mode: 'insensitive' } },
+                        { phone: { contains: search, mode: 'insensitive' } },
+                    ],
+                }
                 : {}),
         };
         const [users, total] = await runTransaction([

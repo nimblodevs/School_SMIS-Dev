@@ -67,3 +67,21 @@ See the server application documentation in:
 ## Notes
 
 The system is designed around tenant isolation, so school-scoped records are enforced through request context and Prisma tenant scoping in the server layer.
+
+# Create a new orphan branch (no history)
+git checkout --orphan temp_branch
+
+# Stage all current files
+git add -A
+
+# Commit everything as a single new commit
+git commit -m "Initial commit"
+
+# Delete the old main branch
+git branch -D main
+
+# Rename temp_branch to main
+git branch -m main
+
+# Force push, overwriting remote history
+git push -f origin main

@@ -1,12 +1,27 @@
 import 'dotenv/config';
+import { generateKeyPairSync } from 'node:crypto';
 import { z } from 'zod';
+
+function normalizePem(value) {
+    return value?.replaceAll('\\n', '\n');
+}
+
+const testKeyPair =
+    process.env.NODE_ENV === 'test'
+        ? generateKeyPairSync('rsa', {
+            modulusLength: 2048,
+            privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+            publicKeyEncoding: { type: 'spki', format: 'pem' },
+        })
+        : null;
 
 const envSchema = z.object({
     PORT: z.coerce.number().int().min(1).max(65535).default(5000),
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
     DATABASE_URL: z.string().url(),
-    JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters long'),
-    JWT_EXPIRES_IN: z.string().default('15m'),
+    JWT_PRIVATE_KEY: z.string().optional(),
+    JWT_PUBLIC_KEY: z.string().optional(),
+    JWT_EXPIRES_IN: z.string().default('10m'),
     REFRESH_TOKEN_EXPIRES_DAYS: z.coerce.number().int().min(1).max(90).default(30),
     JWT_ISSUER: z.string().default('school-smis-api'),
     JWT_AUDIENCE: z.string().default('school-smis-client'),
@@ -43,3 +58,11 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+
+if (env.NODE_ENV !== 'test' && (!env.JWT_PRIVATE_KEY || !env.JWT_PUBLIC_KEY)) {
+    console.error('JWT_PRIVATE_KEY and JWT_PUBLIC_KEY are required outside test mode');
+    process.exit(1);
+}
+
+env.JWT_PRIVATE_KEY = normalizePem(env.JWT_PRIVATE_KEY) ?? testKeyPair?.privateKey;
+env.JWT_PUBLIC_KEY = normalizePem(env.JWT_PUBLIC_KEY) ?? testKeyPair?.publicKey;
