@@ -381,7 +381,7 @@ export class AuthService {
                 userId,
                 codeHash: this.hashToken(otp),
                 purpose: 'LOGIN',
-                    isResend: true,
+                isResend: true,
                 expiresAt: new Date(Date.now() + env.LOGIN_OTP_MINUTES * 60000),
             },
         });
