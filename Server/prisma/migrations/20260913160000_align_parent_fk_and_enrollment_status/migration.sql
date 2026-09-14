@@ -1,0 +1,7 @@
+ALTER TYPE "EnrollmentStatus" ADD VALUE IF NOT EXISTS 'COMPLETED';
+
+ALTER TABLE "parents" DROP CONSTRAINT "parents_userId_fkey";
+ALTER TABLE "parents"
+ADD CONSTRAINT "parents_userId_fkey"
+FOREIGN KEY ("userId") REFERENCES "users"("id")
+ON DELETE SET NULL ON UPDATE CASCADE;

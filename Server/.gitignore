@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build and generated artifacts
+/dist/
+/build/
+/coverage/
+/src/generated/prisma/
+
+# Environment and local secrets
+.env
+.env.*
+.neon
+
+# Logs and runtime files
+*.log
+logs/
+
+# Editor and OS metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local database files
+*.sqlite
+*.sqlite3
+/prisma/dev.db
+/prisma/*.db
