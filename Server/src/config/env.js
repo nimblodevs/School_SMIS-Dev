@@ -33,6 +33,7 @@ const envSchema = z.object({
     LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
     LOGIN_RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
     LOGIN_RATE_LIMIT_PER_IP: z.coerce.number().int().min(1).max(100).default(10),
+    REFRESH_RATE_LIMIT_PER_IP: z.coerce.number().int().min(1).max(300).default(30),
     LOGIN_RATE_LIMIT_PER_IDENTIFIER: z.coerce.number().int().min(1).max(100).default(5),
     OTP_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(10),
     OTP_RATE_LIMIT_PER_USER: z.coerce.number().int().min(1).max(100).default(10),
@@ -47,8 +48,11 @@ const envSchema = z.object({
     SMTP_USER: z.string().optional(),
     SMTP_PASSWORD: z.string().optional(),
     SMTP_FROM: z.string().optional(),
+    GMAIL_HOST: z.string().optional(),
+    GMAIL_USER: z.string().optional(),
+    GMAIL_PASSWORD: z.string().optional(),
     PASSWORD_RESET_OTP_MINUTES: z.coerce.number().int().min(1).max(30).default(10),
-    LOGIN_OTP_MINUTES: z.coerce.number().int().min(1).max(10).default(5),
+    LOGIN_OTP_MINUTES: z.coerce.number().int().min(1).max(10).default(3),
     R2_ACCOUNT_ID: z.string().optional(),
     R2_ACCESS_KEY_ID: z.string().optional(),
     R2_SECRET_ACCESS_KEY: z.string().optional(),
@@ -67,6 +71,11 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+
+// Keep legacy Gmail variable names working while SMTP_* remains canonical.
+env.SMTP_HOST ??= env.GMAIL_HOST;
+env.SMTP_USER ??= env.GMAIL_USER;
+env.SMTP_PASSWORD ??= env.GMAIL_PASSWORD;
 
 if (env.NODE_ENV !== 'test' && (!env.JWT_PRIVATE_KEY || !env.JWT_PUBLIC_KEY)) {
     console.error('JWT_PRIVATE_KEY and JWT_PUBLIC_KEY are required outside test mode');

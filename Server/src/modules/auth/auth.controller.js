@@ -56,6 +56,7 @@ export class AuthController {
                     nextStep: '/api/v1/auth/verify-login-otp',
                     email: result.email,
                     username: result.username,
+                    expiresAt: result.expiresAt,
                 },
             });
         } catch (error) {

@@ -1,0 +1,16 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+:root {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    color: #17211b;
+    background: #f6f7f2;
+}
+
+body {
+    margin: 0;
+}
+
+.font-serif {
+    font-family: 'DM Serif Display', Georgia, serif;
+}

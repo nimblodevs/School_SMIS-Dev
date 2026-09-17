@@ -6,7 +6,7 @@ import { recordAudit } from '../../shared/audit.js';
 import { tenantContext } from '../../config/tenant-context.js';
 
 const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-const PASSWORD_EXEMPT_PATHS = ['/change-password', '/logout', '/reset-password'];
+const PASSWORD_EXEMPT_PATHS = ['/me', '/change-password', '/logout', '/reset-password'];
 
 function extractToken(req) {
     if (req.cookies?.token) return { token: req.cookies.token, source: 'cookie' };

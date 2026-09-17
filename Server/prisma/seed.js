@@ -82,7 +82,7 @@ async function main() {
     await prisma.user.upsert({
         where: { username: 'superadmin' },
         update: {
-            email: 'superadmin@demo.school',
+            email: 'nimblo.devs@gmail.com',
             phone: '+254700000000',
             passwordHash: passwordHashes.superAdmin,
             role: 'SUPER_ADMIN',
@@ -93,7 +93,7 @@ async function main() {
         create: {
             id: IDS.superAdmin,
             username: 'superadmin',
-            email: 'superadmin@demo.school',
+            email: 'nimblo.devs@gmail.com',
             phone: '+254700000000',
             passwordHash: passwordHashes.superAdmin,
             role: 'SUPER_ADMIN',
@@ -104,7 +104,7 @@ async function main() {
     const admin = await prisma.user.upsert({
         where: { username: 'admin' },
         update: {
-            email: 'admin@demo.school',
+            email: 'murichu.kimani@gmail.com',
             phone: '+254700000004',
             passwordHash: passwordHashes.admin,
             role: 'ADMIN',
@@ -115,7 +115,7 @@ async function main() {
         create: {
             id: IDS.admin,
             username: 'admin',
-            email: 'admin@demo.school',
+            email: 'murichu.kimani@gmail.com',
             phone: '+254700000004',
             passwordHash: passwordHashes.admin,
             role: 'ADMIN',
@@ -642,12 +642,12 @@ async function main() {
     }
 
     console.log('Seed completed. Demo login credentials:');
-    console.log('admin / admin@demo.school / AdminDemo123!');
+    console.log('admin / murichu.kimani@gmail.com / AdminDemo123!');
     console.log('jane.teacher / jane.teacher@demo.school / TeacherDemo123!');
     console.log('sam.staff / sam.staff@demo.school / StaffDemo123!');
     console.log('mary.parent / mary.parent@demo.school / ParentDemo123!');
     console.log('alex.student / alex.student@demo.school / StudentDemo123!');
-    console.log('superadmin / superadmin@demo.school / SuperAdmin123!');
+    console.log('superadmin / nimblo.devs@gmail.com / SuperAdmin123!');
 }
 
 main()

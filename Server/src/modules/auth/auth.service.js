@@ -238,7 +238,7 @@ export class AuthService {
         }
 
         const otp = String(randomInt(100000, 1000000));
-        await prisma.passwordResetOtp.create({
+        const loginChallenge = await prisma.passwordResetOtp.create({
             data: {
                 userId: user.id,
                 codeHash: this.hashToken(otp),
@@ -264,6 +264,7 @@ export class AuthService {
             userId: user.id,
             email: user.email,
             username: user.username,
+            expiresAt: loginChallenge.expiresAt.toISOString(),
         };
     }
 
@@ -407,7 +408,12 @@ export class AuthService {
             metadata: { stage: 'otp_resent' },
         });
 
-        return { userId: user.id, email: user.email, username: user.username };
+        return {
+            userId: user.id,
+            email: user.email,
+            username: user.username,
+            expiresAt: loginChallenge.expiresAt.toISOString(),
+        };
     }
 
     /**

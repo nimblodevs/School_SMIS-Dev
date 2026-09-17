@@ -18,6 +18,17 @@ const authIpLimiter = rateLimit({
         message: 'Too many authentication attempts from this IP. Try again later.',
     },
 });
+const refreshIpLimiter = rateLimit({
+    windowMs: env.LOGIN_RATE_LIMIT_WINDOW_MINUTES * 60 * 1000,
+    limit: env.REFRESH_RATE_LIMIT_PER_IP,
+    keyGenerator: (req) => ipKeyGenerator(req.ip),
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    message: {
+        success: false,
+        message: 'Too many session refresh attempts. Try again later.',
+    },
+});
 const loginIdentifierLimiter = rateLimit({
     windowMs: env.LOGIN_RATE_LIMIT_WINDOW_MINUTES * 60 * 1000,
     limit: env.LOGIN_RATE_LIMIT_PER_IDENTIFIER,
@@ -51,7 +62,7 @@ router.post('/google', authIpLimiter, AuthController.googleLogin);
 router.post('/forgot-password', authIpLimiter, loginIdentifierLimiter, AuthController.forgotPassword);
 router.post('/verify-otp', authIpLimiter, otpUserLimiter, AuthController.verifyOtp);
 router.post('/reset-password', authIpLimiter, otpUserLimiter, AuthController.resetPassword);
-router.post('/refresh', authIpLimiter, AuthController.refresh);
+router.post('/refresh', refreshIpLimiter, AuthController.refresh);
 
 // Authenticated routes
 router.post('/logout', authenticate, AuthController.logout);
