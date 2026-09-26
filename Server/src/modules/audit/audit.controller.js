@@ -19,9 +19,18 @@ export class AuditController {
                 );
             }
 
-            const where = {
-                schoolId: req.user.role === 'SUPER_ADMIN' ? undefined : req.user.schoolId,
-            };
+            const where = { schoolId: req.user.schoolId };
+            if (req.query.from || req.query.to) {
+                const from = req.query.from ? new Date(req.query.from) : null;
+                const to = req.query.to ? new Date(req.query.to) : null;
+                if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime()))) {
+                    throw new BadRequestError('from and to must be valid dates');
+                }
+                where.createdAt = {
+                    ...(from ? { gte: from } : {}),
+                    ...(to ? { lte: to } : {}),
+                };
+            }
             if (req.query.action) where.action = req.query.action;
             if (req.query.entityType) where.entityType = req.query.entityType;
             if (req.query.actorId) where.actorId = req.query.actorId;

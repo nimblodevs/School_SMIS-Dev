@@ -7,6 +7,12 @@ import { recordAudit } from '../../shared/audit.js';
 import { env } from '../../config/env.js';
 import { StudentService } from '../students/students.service.js';
 
+const PROFILE_PHOTO_TYPES = new Set([
+    'SCHOOL_PROFILE_PHOTO',
+    'STUDENT_PROFILE_PHOTO',
+    'PARENT_PROFILE_PHOTO',
+]);
+
 function requireBucket() {
     if (!env.R2_ENDPOINT || !env.R2_ACCESS_KEY_ID || !env.R2_SECRET_ACCESS_KEY) {
         throw new BadRequestError('Cloudflare R2 is not configured');
@@ -31,6 +37,50 @@ function safeFileName(fileName) {
 }
 
 export class StorageService {
+    static async assertProfilePhotoAccess({ relatedType, relatedId, mimeType }, actor, upload = false) {
+        if (!PROFILE_PHOTO_TYPES.has(relatedType)) return;
+        if (!relatedId) throw new BadRequestError('Profile photos require a profile ID');
+        if (upload && !mimeType?.startsWith('image/')) {
+            throw new BadRequestError('Profile photos must be image files');
+        }
+        if (!actor.schoolId) throw new BadRequestError('User context must belong to a school');
+
+        if (relatedType === 'SCHOOL_PROFILE_PHOTO') {
+            if (!['ADMIN', 'SUPER_ADMIN'].includes(actor.role)) {
+                throw new ForbiddenError('You cannot manage this school photo');
+            }
+            const school = await prisma.school.findUnique({
+                where: { id: relatedId },
+                select: { id: true },
+            });
+            if (!school || school.id !== actor.schoolId) {
+                throw new NotFoundError('School profile not found');
+            }
+            return;
+        }
+
+        if (relatedType === 'STUDENT_PROFILE_PHOTO') {
+            if (upload) StudentService.assertCanManage(actor);
+            if (upload) await StudentService.assertInSchool(relatedId, actor);
+            else await StudentService.getById(relatedId, actor);
+            return;
+        }
+
+        const parent = await prisma.parent.findFirst({
+            where: { id: relatedId, schoolId: actor.schoolId },
+            select: { id: true, userId: true },
+        });
+        if (!parent) throw new NotFoundError('Parent profile not found');
+
+        const canManageParentPhoto = ['ADMIN', 'SUPER_ADMIN', 'STAFF'].includes(actor.role);
+        if (upload && !canManageParentPhoto && parent.userId !== actor.id) {
+            throw new ForbiddenError('You cannot manage this parent photo');
+        }
+        if (!upload && !canManageParentPhoto && parent.userId !== actor.id) {
+            throw new ForbiddenError('You cannot view this parent photo');
+        }
+    }
+
     static async uploadGeneratedFile(
         { storageKey, originalName, mimeType, body, relatedType, relatedId },
         actor,
@@ -106,6 +156,7 @@ export class StorageService {
 
     static async createUploadUrl(fileData, actor) {
         if (!actor.schoolId) throw new BadRequestError('User context must belong to a school');
+        await this.assertProfilePhotoAccess(fileData, actor, true);
         const bucket = requireBucket();
         const storageKey = `${actor.schoolId}/${randomUUID()}-${safeFileName(fileData.originalName)}`;
         const uploadUrl = await getSignedUrl(
@@ -130,6 +181,7 @@ export class StorageService {
     static async registerFileUpload(fileData, actor, { ipAddress, userAgent } = {}) {
         const schoolId = actor.schoolId;
         if (!schoolId) throw new BadRequestError('User context must belong to a school');
+        await this.assertProfilePhotoAccess(fileData, actor, true);
         const storageBucket = requireBucket();
         if (!fileData.storageKey.startsWith(`${schoolId}/`)) {
             throw new BadRequestError('Storage key is outside the current school scope');
@@ -178,7 +230,9 @@ export class StorageService {
         const schoolId = actor.schoolId;
         if (!schoolId) throw new ForbiddenError('User is not associated with a school');
 
-        if (relatedType === 'REPORT_CARD') {
+        if (PROFILE_PHOTO_TYPES.has(relatedType)) {
+            await this.assertProfilePhotoAccess({ relatedType, relatedId }, actor);
+        } else if (relatedType === 'REPORT_CARD') {
             await StudentService.getById(relatedId, actor);
         } else if (relatedType === 'PAYSLIP') {
             const payslip = await prisma.payslip.findFirst({

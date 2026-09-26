@@ -8,8 +8,100 @@ import {
     reversePaymentSchema,
 } from './finance.validation.js';
 import { BadRequestError } from '../../shared/errors/AppError.js';
+import { FeeReminderService } from './fee-reminder.service.js';
+import {
+    bulkReminderSchema,
+    reminderBatchIdSchema,
+    reminderInvoiceIdSchema,
+    singleReminderSchema,
+} from './fee-reminder.validation.js';
+import { enqueueJob, JOB_TYPES } from '../../shared/background-jobs.js';
+
+async function enqueueReminderBatch(batch, req) {
+    try {
+        return await enqueueJob({
+            type: JOB_TYPES.FEE_REMINDER_BATCH,
+            schoolId: req.user.schoolId,
+            payload: { batchId: batch.batchId, actorId: req.user.id },
+        });
+    } catch (error) {
+        await FeeReminderService.markBatchQueueFailed(batch.batchId, req.user.schoolId, error);
+        throw error;
+    }
+}
 
 export class FinanceController {
+    static async reminderProviders(req, res, next) {
+        try {
+            return res.json({ success: true, data: FeeReminderService.configuredProviders() });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    static async listOverdueInvoices(req, res, next) {
+        try {
+            const data = await FeeReminderService.listOverdueInvoices(req.user);
+            return res.json({ success: true, data });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    static async queueInvoiceReminder(req, res, next) {
+        try {
+            const params = reminderInvoiceIdSchema.safeParse(req.params);
+            const validation = singleReminderSchema.safeParse(req.body);
+            if (!params.success || !validation.success) {
+                throw new BadRequestError(
+                    'Validation error',
+                    params.success ? validation.error.format() : params.error.format(),
+                );
+            }
+            const batch = await FeeReminderService.queueSingle(
+                { invoiceId: params.data.invoiceId, ...validation.data },
+                req.user,
+            );
+            const job = await enqueueReminderBatch(batch, req);
+            return res.status(202).json({
+                success: true,
+                message: 'Fee reminder queued',
+                data: { ...batch, jobId: job.id },
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    static async queueBulkReminders(req, res, next) {
+        try {
+            const validation = bulkReminderSchema.safeParse(req.body);
+            if (!validation.success)
+                throw new BadRequestError('Validation error', validation.error.format());
+            const batch = await FeeReminderService.queueBulk(validation.data, req.user);
+            const job = await enqueueReminderBatch(batch, req);
+            return res.status(202).json({
+                success: true,
+                message: 'Bulk fee reminders queued',
+                data: { ...batch, jobId: job.id },
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    static async getReminderBatch(req, res, next) {
+        try {
+            const validation = reminderBatchIdSchema.safeParse(req.params);
+            if (!validation.success)
+                throw new BadRequestError('Validation error', validation.error.format());
+            const data = await FeeReminderService.getBatch(validation.data.batchId, req.user);
+            return res.json({ success: true, data });
+        } catch (error) {
+            next(error);
+        }
+    }
+
     static async generateTermInvoices(req, res, next) {
         try {
             const validation = generateInvoicesSchema.safeParse(req.body);

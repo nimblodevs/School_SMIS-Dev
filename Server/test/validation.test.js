@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { loginSchema } from '../src/modules/auth/auth.validation.js';
+import {
+    loginOtpSchema,
+    loginSchema,
+    resendLoginOtpSchema,
+} from '../src/modules/auth/auth.validation.js';
 import {
     createParentSchema,
     updateParentSchema,
@@ -29,6 +33,13 @@ describe('authentication validation', () => {
 
     it('rejects login without an email', () => {
         expect(loginSchema.safeParse({ password: 'long-enough-password' }).success).toBe(false);
+    });
+
+    it('uses opaque challenge tokens for login OTP requests', () => {
+        const challengeToken = 'c'.repeat(43);
+        expect(loginOtpSchema.safeParse({ challengeToken, otp: '123456' }).success).toBe(true);
+        expect(resendLoginOtpSchema.safeParse({ challengeToken }).success).toBe(true);
+        expect(loginOtpSchema.safeParse({ userId: 'user-id', otp: '123456' }).success).toBe(false);
     });
 });
 

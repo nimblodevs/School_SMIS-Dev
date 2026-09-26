@@ -7,12 +7,12 @@ export const loginSchema = z
     });
 
 export const loginOtpSchema = z.object({
-    userId: z.string().uuid(),
+    challengeToken: z.string().min(32).max(128),
     otp: z.string().regex(/^\d{6}$/, 'OTP must be a 6-digit code'),
 });
 
 export const resendLoginOtpSchema = z.object({
-    userId: z.string().uuid(),
+    challengeToken: z.string().min(32).max(128),
 });
 
 export const changePasswordSchema = z.object({

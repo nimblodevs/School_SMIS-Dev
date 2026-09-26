@@ -5,6 +5,7 @@ import { env } from '../../config/env.js';
 import { recordAudit } from '../../shared/audit.js';
 import { sendTemporaryCredentials } from '../../shared/email.js';
 import { BadRequestError, NotFoundError } from '../../shared/errors/AppError.js';
+import { resolveSchoolId } from '../../shared/ownership.js';
 
 function generateTemporaryPassword(schoolCode) {
     return `SMIS-${schoolCode}-${randomBytes(12).toString('base64url')}`;
@@ -12,8 +13,7 @@ function generateTemporaryPassword(schoolCode) {
 
 export class UserService {
     static async provisionEmployee(role, input, actor, { ipAddress, userAgent } = {}) {
-        const schoolId = actor.role === 'SUPER_ADMIN' ? input.schoolId : actor.schoolId;
-        if (!schoolId) throw new BadRequestError('schoolId is required for employee provisioning');
+        const schoolId = resolveSchoolId(actor, input.schoolId);
 
         const school = await prisma.school.findUnique({
             where: { id: schoolId },

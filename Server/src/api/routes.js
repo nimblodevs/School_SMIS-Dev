@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { authenticate } from './middlewares/authMiddleware.js';
+import { resolveSchoolContext } from './middlewares/schoolContextMiddleware.js';
 import authRoutes from '../modules/auth/auth.router.js';
 import auditRoutes from '../modules/audit/audit.router.js';
 import userRoutes from '../modules/users/user.router.js';
@@ -34,20 +35,22 @@ router.use('/auth', authRoutes);
 router.use(authenticate);
 router.use(globalLimiter);
 
-router.use('/users', userRoutes);
+const useSchoolContext = (path, route) => router.use(path, resolveSchoolContext, route);
+
+useSchoolContext('/users', userRoutes);
 router.use('/schools', schoolRoutes);
-router.use('/students', studentRoutes);
-router.use('/parents', parentRoutes);
-router.use('/academics', academicsRoutes);
-router.use('/attendance', attendanceRoutes);
-router.use('/storage', storageRoutes);
-router.use('/cbc', cbcRoutes);
-router.use('/exams', examRoutes);
-router.use('/reports', reportCardRoutes);
-router.use('/payroll', payrollRoutes);
-router.use('/hr', hrRoutes);
-router.use('/jobs', jobRoutes);
-router.use('/finance', financeRoutes);
-router.use('/audit-logs', auditRoutes);
+useSchoolContext('/students', studentRoutes);
+useSchoolContext('/parents', parentRoutes);
+useSchoolContext('/academics', academicsRoutes);
+useSchoolContext('/attendance', attendanceRoutes);
+useSchoolContext('/storage', storageRoutes);
+useSchoolContext('/cbc', cbcRoutes);
+useSchoolContext('/exams', examRoutes);
+useSchoolContext('/reports', reportCardRoutes);
+useSchoolContext('/payroll', payrollRoutes);
+useSchoolContext('/hr', hrRoutes);
+useSchoolContext('/jobs', jobRoutes);
+useSchoolContext('/finance', financeRoutes);
+useSchoolContext('/audit-logs', auditRoutes);
 
 export default router;

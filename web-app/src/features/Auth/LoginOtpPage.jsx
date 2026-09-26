@@ -13,19 +13,21 @@ import { AuthLayout } from '../../components/layout/AuthLayout.jsx'
 export function LoginOtpPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { userId, email, username, expiresAt: initialExpiresAt } = location.state || {}
+  const { challengeToken: initialChallengeToken, email, expiresAt: initialExpiresAt } = location.state || {}
+  const [challengeToken, setChallengeToken] = useState(initialChallengeToken || '')
   const [seconds, setSeconds] = useState(30)
   const [expiresAt, setExpiresAt] = useState(initialExpiresAt || 0)
   const [remaining, setRemaining] = useState(0)
   const form = useAuthForm(otpSchema, { otp: '' })
   const verify = useMutation({
-    mutationFn: (values) => authApi.verifyLoginOtp({ ...values, userId }),
+    mutationFn: (values) => authApi.verifyLoginOtp({ ...values, challengeToken }),
     onSuccess: ({ data }) => navigate('/workspace', { replace: true, state: { user: data.user } }),
   })
   const resend = useMutation({
-    mutationFn: () => authApi.resendLoginOtp({ userId }),
+    mutationFn: () => authApi.resendLoginOtp({ challengeToken }),
     onSuccess: ({ data }) => {
       setSeconds(30)
+      setChallengeToken(data?.challengeToken || '')
       setExpiresAt(data?.expiresAt || 0)
     },
   })
@@ -47,10 +49,10 @@ export function LoginOtpPage() {
   const expiryMinutes = Math.floor(remaining / 60000)
   const expirySeconds = Math.floor((remaining % 60000) / 1000).toString().padStart(2, '0')
 
-  if (!userId) return <AuthLayout title="Verification link expired."><p className="text-sm leading-6 text-[#66756b]">Start again so we can send a fresh verification code.</p><Link className="mt-6 inline-block font-bold text-[#b34d3d]" to="/login">Return to sign in</Link></AuthLayout>
+  if (!challengeToken) return <AuthLayout title="Verification link expired."><p className="text-sm leading-6 text-[#66756b]">Start again so we can send a fresh verification code.</p><Link className="mt-6 inline-block font-bold text-[#b34d3d]" to="/login">Return to sign in</Link></AuthLayout>
 
   return <AuthLayout eyebrow="Identity check" title="Enter your code.">
-    <p className="mb-7 text-sm leading-6 text-[#66756b]">We sent a six-digit code to <strong className="text-[#304139]">{email ? maskEmail(email) : username || 'your email'}</strong>. It expires shortly.</p>
+    <p className="mb-7 text-sm leading-6 text-[#66756b]">We sent a six-digit code to <strong className="text-[#304139]">{email ? maskEmail(email) : 'your email'}</strong>. It expires shortly.</p>
     <form className="space-y-5" onSubmit={form.handleSubmit((values) => verify.mutate(values))}>
       <FormMessage message={verify.error?.message || resend.error?.message} />
       <Input label="6-digit verification code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} {...form.register('otp')} error={form.formState.errors.otp?.message} />

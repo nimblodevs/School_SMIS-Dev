@@ -62,6 +62,9 @@ npm run dev
 ## Security and tenancy notes
 
 - Auth and OTP endpoints should be protected with IP and user-level throttling.
+- Authentication limits use `express-rate-limit`'s process-local memory store. If the API is deployed across multiple instances, use a shared edge limit or an external store to keep limits consistent.
+- School-scoped API routes use the authenticated user's school or require a platform administrator to select an active school with `x-school-id`. Conflicting query/body selections are rejected.
+- Fee reminder delivery uses server-configured Gmail (`GMAIL_USER`, `GMAIL_PASSWORD`, optional `GMAIL_HOST`, `GMAIL_PORT`, `GMAIL_FROM`) or Outlook (`OUTLOOK_USER`, `OUTLOOK_PASSWORD`, optional `OUTLOOK_HOST`, `OUTLOOK_PORT`, `OUTLOOK_FROM`) SMTP credentials. Gmail commonly requires an app password; tenant administrators never receive mail credentials through the API.
 - School-scoped access must always be validated before mutating or reading tenant data.
 - Ownership checks are separate from tenant checks and should remain explicit.
 - Background jobs and impersonation actions should remain fully auditable.

@@ -6,6 +6,7 @@ import { HRService } from '../modules/humanresource/hr.service.js';
 import { PayrollService } from '../modules/payroll/payroll.service.js';
 import { DocumentService } from '../modules/storage/document.service.js';
 import { StorageService } from '../modules/storage/storage.service.js';
+import { FeeReminderService } from '../modules/finance/fee-reminder.service.js';
 import { sendPayslipEmail } from './email.js';
 import { z } from 'zod';
 
@@ -15,6 +16,7 @@ export const JOB_TYPES = {
     PAYSLIP_PDF: 'PAYSLIP_PDF',
     FILE_PROCESSING: 'FILE_PROCESSING',
     LEAVE_BALANCE_RESET: 'LEAVE_BALANCE_RESET',
+    FEE_REMINDER_BATCH: 'FEE_REMINDER_BATCH',
 };
 
 const jobPayloadSchemas = {
@@ -34,6 +36,10 @@ const jobPayloadSchemas = {
         actorId: z.string().uuid(),
     }),
     [JOB_TYPES.LEAVE_BALANCE_RESET]: z.object({ year: z.number().int().min(2000).max(2100) }),
+    [JOB_TYPES.FEE_REMINDER_BATCH]: z.object({
+        batchId: z.string().uuid(),
+        actorId: z.string().uuid(),
+    }),
 };
 
 export function validateJobPayload(type, payload) {
@@ -97,7 +103,7 @@ async function runJob(job) {
     let actor = { id: null, schoolId: job.schoolId, role: 'SYSTEM', modulePermissions: [] };
     if (payload.actorId) {
         const user = await prisma.user.findFirst({
-            where: { id: payload.actorId, schoolId: job.schoolId, isActive: true },
+            where: { id: payload.actorId, isActive: true },
             select: {
                 id: true,
                 schoolId: true,
@@ -105,10 +111,13 @@ async function runJob(job) {
                 staffModuleAccess: { select: { module: true } },
             },
         });
-        if (!user) throw new Error('Background job actor is no longer active in this school');
+        if (
+            !user ||
+            (user.role !== 'SUPER_ADMIN' && user.schoolId !== job.schoolId)
+        ) throw new Error('Background job actor is no longer active in this school');
         actor = {
             id: user.id,
-            schoolId: user.schoolId,
+            schoolId: user.role === 'SUPER_ADMIN' ? job.schoolId : user.schoolId,
             role: user.role,
             modulePermissions: user.staffModuleAccess.map(({ module }) => module),
         };
@@ -163,6 +172,8 @@ async function runJob(job) {
         }
         case JOB_TYPES.FILE_PROCESSING:
             return DocumentService.processImage(payload.fileUploadId, actor);
+        case JOB_TYPES.FEE_REMINDER_BATCH:
+            return FeeReminderService.processBatch(payload.batchId, job.schoolId);
         case JOB_TYPES.LEAVE_BALANCE_RESET: {
             const schools = job.schoolId
                 ? [{ id: job.schoolId }]

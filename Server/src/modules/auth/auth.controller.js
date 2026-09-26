@@ -52,10 +52,9 @@ export class AuthController {
                 success: true,
                 message: 'Credentials validated. Enter the OTP sent to your email.',
                 data: {
-                    userId: result.userId,
+                    challengeToken: result.challengeToken,
                     nextStep: '/api/v1/auth/verify-login-otp',
                     email: result.email,
-                    username: result.username,
                     expiresAt: result.expiresAt,
                 },
             });
@@ -89,7 +88,7 @@ export class AuthController {
             const validation = resendLoginOtpSchema.safeParse(req.body);
             if (!validation.success)
                 throw new BadRequestError('Validation error', validation.error.format());
-            const result = await AuthService.resendLoginOtp(validation.data.userId, {
+            const result = await AuthService.resendLoginOtp(validation.data.challengeToken, {
                 ipAddress: req.ip,
                 userAgent: req.headers['user-agent'],
             });

@@ -26,6 +26,18 @@ enum RefundStatus {
   CANCELLED
 }
 
+enum FeeReminderProvider {
+  GMAIL
+  OUTLOOK
+}
+
+enum FeeReminderStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
 enum CreditNoteReason {
   OVERPAYMENT
   REFUND
@@ -74,11 +86,35 @@ model Invoice {
   paymentAllocations    PaymentAllocation[]
   creditNotes           CreditNote[]
   creditNoteApplications CreditNoteApplication[]
+  reminders             FeeReminder[]
 
   @@unique([studentId, termId])
   @@index([schoolId])
   @@index([status, dueDate])
   @@map("invoices")
+}
+
+model FeeReminder {
+  id             String              @id @default(uuid())
+  schoolId       String
+  school         School              @relation(fields: [schoolId], references: [id])
+  invoiceId      String
+  invoice        Invoice             @relation(fields: [invoiceId], references: [id])
+  batchId        String?
+  recipientEmail String?
+  provider       FeeReminderProvider
+  subject        String
+  message        String              @db.Text
+  status         FeeReminderStatus   @default(PENDING)
+  failureReason  String?             @db.Text
+  senderId       String?
+  sender         User?               @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  sentAt         DateTime?
+  createdAt      DateTime            @default(now())
+
+  @@index([schoolId, batchId, status])
+  @@index([schoolId, invoiceId, createdAt])
+  @@map("fee_reminders")
 }
 
 enum PaymentMethod {

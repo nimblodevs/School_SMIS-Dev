@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import { env } from '../config/env.js';
 
 let transporter;
+const reminderTransporters = new Map();
 
 function getTransporter() {
     if (!env.SMTP_HOST || !env.SMTP_PORT || !env.SMTP_USER || !env.SMTP_PASSWORD) {
@@ -60,4 +61,58 @@ export async function sendPayslipEmail({ to, employeeName, month, downloadUrl })
         subject: `School SMIS payslip for ${month}`,
         text: `Hello ${employeeName},\n\nYour payslip for ${month} is ready. Download it using this private link, which expires soon:\n${downloadUrl}`,
     });
+}
+
+function reminderMailConfig(provider) {
+    if (provider === 'GMAIL') {
+        const genericIsGmail = /gmail|google/i.test(env.SMTP_HOST || '');
+        const user = env.GMAIL_USER || (genericIsGmail ? env.SMTP_USER : undefined);
+        const password = env.GMAIL_PASSWORD || (genericIsGmail ? env.SMTP_PASSWORD : undefined);
+        return {
+            host: env.GMAIL_HOST || (genericIsGmail ? env.SMTP_HOST : 'smtp.gmail.com'),
+            port: env.GMAIL_PORT || (genericIsGmail ? env.SMTP_PORT : 465),
+            user,
+            password,
+            from: env.GMAIL_FROM || user,
+        };
+    }
+
+    if (provider === 'OUTLOOK') {
+        return {
+            host: env.OUTLOOK_HOST || 'smtp-mail.outlook.com',
+            port: env.OUTLOOK_PORT || 587,
+            user: env.OUTLOOK_USER,
+            password: env.OUTLOOK_PASSWORD,
+            from: env.OUTLOOK_FROM || env.OUTLOOK_USER,
+        };
+    }
+
+    throw new Error('Unsupported reminder email provider');
+}
+
+export function getConfiguredReminderProviders() {
+    return ['GMAIL', 'OUTLOOK'].map((provider) => {
+        const config = reminderMailConfig(provider);
+        return { provider, connected: Boolean(config.user && config.password) };
+    });
+}
+
+export async function sendFeeReminder({ provider, to, subject, text }) {
+    const config = reminderMailConfig(provider);
+    if (!config.user || !config.password) {
+        throw new Error(`${provider} email is not configured for this server`);
+    }
+
+    let providerTransporter = reminderTransporters.get(provider);
+    if (!providerTransporter) {
+        providerTransporter = nodemailer.createTransport({
+            host: config.host,
+            port: config.port,
+            secure: config.port === 465,
+            auth: { user: config.user, pass: config.password },
+        });
+        reminderTransporters.set(provider, providerTransporter);
+    }
+
+    return providerTransporter.sendMail({ from: config.from, to, subject, text });
 }

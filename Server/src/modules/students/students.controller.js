@@ -46,7 +46,7 @@ export class StudentController {
                 search,
                 streamId,
                 isActive,
-                schoolId: req.user.role === 'SUPER_ADMIN' ? req.query.schoolId : req.user.schoolId,
+                schoolId: req.user.schoolId,
             });
 
             return res.status(200).json({

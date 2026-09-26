@@ -21,6 +21,8 @@ function pathMatches(req, suffixes) {
 }
 
 export const authenticate = async (req, res, next) => {
+    if (req.authenticated) return next();
+
     try {
         const { token } = extractToken(req);
         if (!token) throw new UnauthorizedError('Authentication token missing');
@@ -85,7 +87,7 @@ export const authenticate = async (req, res, next) => {
             id: user.id,
             email: user.email,
             role: user.role,
-            schoolId: user.schoolId,
+            schoolId: req.selectedSchoolId ?? user.schoolId,
             modulePermissions: user.staffModuleAccess.map((a) => a.module),
             mustChangePassword: user.mustChangePassword,
             sessionId: decoded.sessionId,
@@ -104,6 +106,7 @@ export const authenticate = async (req, res, next) => {
             );
         }
 
+        req.authenticated = true;
         // Impersonation audit: only for state-changing requests.
         // Reads are covered by the IMPERSONATION_STARTED row + session duration.
         if (isImpersonated && STATE_CHANGING_METHODS.has(req.method)) {
@@ -125,7 +128,7 @@ export const authenticate = async (req, res, next) => {
 
         return tenantContext.run(
             {
-                schoolId: user.schoolId,
+                schoolId: req.user.schoolId,
                 actorId: req.user.isImpersonated ? req.user.actorId : user.id,
                 role: user.role,
             },

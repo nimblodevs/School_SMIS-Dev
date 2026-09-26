@@ -103,6 +103,7 @@ model School {
   competencyAssessments CompetencyAssessment[]
   feeStructures         FeeStructure[]
   invoices              Invoice[]
+  feeReminders          FeeReminder[]
   payments              Payment[]
   paymentAllocations    PaymentAllocation[]
   ledgerEntries         LedgerEntry[]

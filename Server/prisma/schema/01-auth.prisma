@@ -39,6 +39,7 @@ model User {
   refreshSessions       RefreshSession[]
   passwordResetOtps     PasswordResetOtp[]
   activationTokens      ActivationToken[]
+  feeRemindersSent      FeeReminder[]
 
   @@index([schoolId])
   @@map("users")
@@ -191,6 +192,9 @@ model RefreshSession {
   revokedAt    DateTime?
   reusedAt     DateTime?
   replacedById String?
+  isImpersonated Boolean @default(false)
+  impersonatedUserId String?
+  actorSessionId String?
   ipAddress    String?
   userAgent    String?
   createdAt    DateTime  @default(now())
@@ -207,6 +211,7 @@ model PasswordResetOtp {
   userId     String
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   codeHash   String
+  challengeTokenHash String? @unique
   purpose    String    @default("PASSWORD_RESET")
   expiresAt  DateTime
   consumedAt DateTime?
