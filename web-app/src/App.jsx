@@ -1,15 +1,13 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { authApi } from './api/client.js'
-import {
-  ChangePasswordPage,
-  ForgotPasswordPage,
-  LoginOtpPage,
-  LoginPage,
-  ResetPasswordCodePage,
-  ResetPasswordPage,
-  WorkspacePage,
-} from './features/Auth/AuthPages.jsx'
+import { ChangePasswordPage } from './features/Auth/ChangePasswordPage.jsx'
+import { ForgotPasswordPage } from './features/Auth/ForgotPasswordPage.jsx'
+import { LoginOtpPage } from './features/Auth/LoginOtpPage.jsx'
+import { LoginPage } from './features/Auth/LoginPage.jsx'
+import { ResetPasswordCodePage } from './features/Auth/ResetPasswordCodePage.jsx'
+import { ResetPasswordPage } from './features/Auth/ResetPasswordPage.jsx'
+import { WorkspacePage } from './features/Auth/WorkspacePage.jsx'
 
 function ProtectedRoute() {
   const { data, isPending, isError } = useQuery({ queryKey: ['auth', 'me'], queryFn: authApi.getMe })
